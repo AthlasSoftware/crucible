@@ -23,12 +23,16 @@ class HistoryEntry:
 
 
 def save(report: dict) -> Path:
+    """Persist a report as JSON plus a human-readable Markdown file. Returns the
+    Markdown path (the one meant for humans); the .json sits next to it."""
+    from crucible.report import save_benchmark_md
+
     directory = benchmarks_dir()
     directory.mkdir(parents=True, exist_ok=True)
     ts = report["timestamp"].replace(":", "-").replace("+", "_")
     path = directory / f"{ts}_{report['backend']}.json"
     path.write_text(json.dumps(report, indent=2), encoding="utf-8")
-    return path
+    return save_benchmark_md(report, path)
 
 
 def list_history() -> list[HistoryEntry]:

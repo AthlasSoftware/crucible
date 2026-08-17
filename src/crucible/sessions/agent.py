@@ -3,13 +3,12 @@
 States: IDLE → THINKING → (AWAITING_APPROVAL) → EXECUTING → THINKING ...
 Exits to IDLE on DONE:, max iterations, backend error, or user stop.
 
-Designed to run inside a Textual *async* worker (same event loop as the app),
-so callbacks may touch widgets directly.
+UI-agnostic: presentation hooks in via AgentCallbacks, including the async
+request_approval callback that approve-each mode awaits.
 """
 
 from __future__ import annotations
 
-import asyncio
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum
@@ -34,6 +33,10 @@ def _noop(*_args) -> None:
     pass
 
 
+async def _auto_approve(_command: str) -> str:
+    return "yes"
+
+
 @dataclass
 class AgentCallbacks:
     on_state: Callable = _noop  # (AgentState)
@@ -45,6 +48,8 @@ class AgentCallbacks:
     on_done: Callable = _noop  # (summary: str)
     on_info: Callable = _noop  # (str) loop-level notices
     on_error: Callable = _noop  # (str)
+    # async (command) -> "yes" | "no" | "auto"; only consulted in approve-each mode
+    request_approval: Callable = _auto_approve
 
 
 @dataclass
@@ -71,28 +76,15 @@ class AgentLoop:
         self.auto = cfg.approval == "auto"
         self.state = AgentState.IDLE
         self.messages: list[dict] = [{"role": "system", "content": self._system()}]
-        self._approval = asyncio.Event()
-        self._approved = False
         self._stop = False
 
     # ---- UI-facing controls -------------------------------------------------
 
-    def approve(self) -> None:
-        self._approved = True
-        self._approval.set()
-
-    def deny(self) -> None:
-        self._approved = False
-        self._approval.set()
-
     def set_auto(self, auto: bool) -> None:
         self.auto = auto
-        if auto and self.state is AgentState.AWAITING_APPROVAL:
-            self.approve()
 
     def request_stop(self) -> None:
         self._stop = True
-        self._approval.set()  # unblock a pending approval wait
 
     # ---- internals ----------------------------------------------------------
 
@@ -218,10 +210,11 @@ class AgentLoop:
         if self.auto:
             return True
         self._set_state(AgentState.AWAITING_APPROVAL)
-        self._approval.clear()
-        self._approved = False
-        await self._approval.wait()
-        return self._approved and not self._stop
+        answer = await self.cb.request_approval(command)
+        if answer == "auto":
+            self.auto = True
+            return True
+        return answer == "yes" and not self._stop
 
     def _append_assistant(self, turn: _Turn, tool_call: ToolCall | None) -> None:
         msg: dict = {"role": "assistant", "content": turn.text or None}

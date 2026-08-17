@@ -15,6 +15,10 @@ from dataclasses import dataclass
 LABEL = "crucible.session"
 OUTPUT_CAP_BYTES = 256 * 1024
 
+# Names of containers created by THIS process and not yet destroyed — the
+# crash-cleanup at exit only touches these, never other instances' sessions.
+live_containers: set[str] = set()
+
 # on_output(stream, line) where stream is "stdout" | "stderr" | "info"
 OutputCb = Callable[[str, str], None]
 
@@ -79,6 +83,7 @@ class DockerSandbox:
         if code != 0:
             raise SandboxError(f"docker run failed: {err.strip() or out.strip()}")
         self.alive = True
+        live_containers.add(self.name)
         emit("info", f"container {self.name} up ({self.image})")
 
     async def _pull(self, emit: OutputCb) -> None:
@@ -154,6 +159,7 @@ class DockerSandbox:
     async def destroy(self) -> None:
         await _docker("rm", "-f", self.name, timeout_s=30)
         self.alive = False
+        live_containers.discard(self.name)
 
     @staticmethod
     async def purge_stale(exclude: set[str] | None = None) -> int:
