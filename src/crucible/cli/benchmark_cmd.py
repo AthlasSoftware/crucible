@@ -10,6 +10,7 @@ from crucible import hardware
 from crucible.backends import BackendError
 from crucible.benchmark import BenchmarkParams, BenchmarkRunner, get_prompt_set, save
 from crucible.cli.common import pick_backend, pick_models
+from crucible.cli.monitor import LiveMonitor
 from crucible.cli.ui import confirm, console, rule, text
 from crucible.config import Config
 from crucible.report import render_benchmark_md
@@ -50,7 +51,11 @@ async def run(cfg: Config) -> None:
         if not models:
             return
         try:
+            console.print("[muted]runs — times each of the 4 prompts is generated per model; "
+                          "more runs = steadier averages[/]")
             runs = max(1, int(await text("Runs per prompt?", str(cfg.benchmark.runs))))
+            console.print("[muted]max tokens — cap on generated tokens per run; bigger = "
+                          "longer, steadier gen-t/s measurement[/]")
             max_tokens = max(16, int(await text("Max tokens?", str(cfg.benchmark.max_tokens))))
         except ValueError:
             console.print("[err]numbers, please[/]")
@@ -68,31 +73,33 @@ async def run(cfg: Config) -> None:
             return
 
         report = None
-        with Progress(
+        progress = Progress(
             SpinnerColumn(style="brand"),
             TextColumn("[progress.description]{task.description}"),
             BarColumn(complete_style="brand"),
             TextColumn("{task.completed}/{task.total}"),
             console=console,
-        ) as progress:
-            tasks = {m: progress.add_task(m, total=per_model, start=False) for m in models}
+        )
+        tasks = {m: progress.add_task(m, total=per_model, start=False) for m in models}
 
-            def on_progress(ev: dict) -> None:
-                task_id = tasks[ev["model"]]
-                if ev["phase"] == "warmup":
-                    progress.start_task(task_id)
-                    progress.update(task_id, description=f"{ev['model']} [muted]warmup/load[/]")
-                elif ev["phase"] == "model-done":
-                    progress.update(task_id, description=f"{ev['model']} [ok]done[/]")
-                elif ev["token"] is None:
-                    progress.start_task(task_id)
-                    progress.update(
-                        task_id, completed=ev["done"],
-                        description=f"{ev['model']} [muted]({ev['prompt_id']})[/]",
-                    )
+        def on_progress(ev: dict) -> None:
+            task_id = tasks[ev["model"]]
+            if ev["phase"] == "warmup":
+                progress.start_task(task_id)
+                progress.update(task_id, description=f"{ev['model']} [muted]warmup/load[/]")
+            elif ev["phase"] == "model-done":
+                progress.update(task_id, description=f"{ev['model']} [ok]done[/]")
+            elif ev["token"] is None:
+                progress.start_task(task_id)
+                progress.update(
+                    task_id, completed=ev["done"],
+                    description=f"{ev['model']} [muted]({ev['prompt_id']})[/]",
+                )
 
-            runner = BenchmarkRunner(backend, models, prompts, params,
-                                     hardware.probe(), on_progress)
+        runner = BenchmarkRunner(backend, models, prompts, params,
+                                 hardware.probe(), on_progress)
+        # Progress + live hardware readout pinned at the bottom while it runs.
+        async with LiveMonitor(extra=progress, status="benchmarking"):
             try:
                 report = await runner.run()
             except BackendError as e:

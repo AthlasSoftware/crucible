@@ -43,6 +43,7 @@ async def run(cfg: Config) -> None:
                 ("default model (pick from live list)", "model"),
                 ("approval mode", "approval"),
                 ("sandbox network on/off", "network"),
+                ("what do the settings mean?", "help"),
                 ("open in $EDITOR", "editor"),
                 ("← back", "back"),
             ],
@@ -50,6 +51,9 @@ async def run(cfg: Config) -> None:
         )
         if action in (None, "back"):
             return
+        if action == "help":
+            _print_help()
+            continue
         if action == "backend":
             choice = await select("Active backend?", [(n, n) for n in BACKEND_NAMES],
                                   default=cfg.backend.active)
@@ -75,6 +79,32 @@ async def run(cfg: Config) -> None:
             continue
         cfg.save()
         console.print("[ok]saved[/]")
+
+
+def _print_help() -> None:
+    console.print("""
+[bold]Backend[/] [muted]— used by benchmarks ⚖ and sessions ⚗[/]
+  [accent]active[/]          which LLM server benchmarks and sessions talk to
+  [accent]base_url[/]        where that server listens (per backend)
+  [accent]default_model[/]   preselected model in pickers
+  [accent]api_key[/]         bearer token for openai-compatible endpoints that need one
+
+[bold]Benchmark ⚖[/] [muted]— only affects benchmark runs[/]
+  [accent]runs[/]            times each of the 4 prompts is generated per model —
+                  more runs = steadier averages, longer benchmark
+  [accent]max_tokens[/]      cap on generated tokens per run — bigger = steadier gen-t/s
+  [accent]warmup[/]          one untimed generation first, so cold model loading
+                  doesn't skew run 1
+
+[bold]Sandbox ⚗[/] [muted]— only affects sessions[/]
+  [accent]image[/]           docker image the model gets its shell in
+  [accent]cpus / memory[/]   resource limits for the container
+  [accent]network[/]         internet access for the sandbox (needed for apt/pip) —
+                  off = fully isolated
+  [accent]approval[/]        approve-each: you confirm every command · auto: runs freely
+  [accent]command_timeout_s[/]  seconds before a sandbox command is killed
+  [accent]max_iterations[/]  command steps per task before the agent loop stops
+""")
 
 
 async def _pick_default_model(cfg: Config) -> None:

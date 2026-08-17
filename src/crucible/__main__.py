@@ -1,4 +1,4 @@
-from crucible.cli.main import main
+from crucible.app import main
 
 if __name__ == "__main__":
     main()

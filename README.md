@@ -10,10 +10,12 @@
                                        POWERED BY ATHLAS.IO
 ```
 
-**The LLM testing grounds.** A refined inline CLI — it lives in your actual
-terminal and your scrollback, no full-screen takeover — for putting local LLMs
+**The LLM testing grounds.** A full-screen terminal app for putting local LLMs
 through their paces: benchmark your hardware and models, or drop an LLM into a
-sandboxed container with its own shell and watch it work.
+sandboxed container with its own shell and watch it work — with a live machine
+monitor (CPU · RAM · per-GPU util/VRAM/temp) pinned to the screen while tests
+run. A scriptable inline mode (`crucible --inline`, automatic when piped)
+covers automation and CI.
 
 ## Features
 
@@ -55,9 +57,14 @@ First run creates `~/.config/crucible/config.toml` with sane defaults
 the Config menu or by editing the file. Reports land in
 `~/.local/share/crucible/{benchmarks,sessions}/`.
 
-Non-TTY usage (pipes, CI) falls back to plain numbered prompts where empty
-input accepts the default — so flows are scriptable:
-`printf '5\n6\n' | crucible` prints the About page and quits.
+`crucible` opens the full-screen TUI. `crucible --inline` runs the inline CLI
+instead — and any non-TTY invocation (pipes, CI) falls back to it
+automatically, with plain numbered prompts where empty input accepts the
+default: `printf '5\n6\n' | crucible` prints the About page and quits.
+
+Every setting is explained where you meet it: the Config screen describes each
+field and marks which mode uses it (⚖ benchmark · ⚗ session), and the inline
+config menu has a "what do the settings mean?" entry.
 
 ## Configuration
 

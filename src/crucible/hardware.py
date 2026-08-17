@@ -110,6 +110,20 @@ def probe_gpus() -> list[GpuInfo]:
     return gpus
 
 
+def status_line(hw: HardwareInfo) -> str:
+    """Compact one-line readout (plain text, no markup) for live monitors."""
+    parts = [
+        f"CPU {hw.load_pct:3.0f}%",
+        f"RAM {hw.ram_used_gb:.1f}/{hw.ram_total_gb:.0f}G",
+    ]
+    parts.extend(
+        f"GPU{i} {g.util_pct:3d}% {g.vram_used_mb / 1024:.1f}/{g.vram_total_mb / 1024:.0f}G "
+        f"{g.temp_c}°C"
+        for i, g in enumerate(hw.gpus)
+    )
+    return "  ·  ".join(parts)
+
+
 def probe() -> HardwareInfo:
     ram = psutil.virtual_memory()
     disk = psutil.disk_usage("/")

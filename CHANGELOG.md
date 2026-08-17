@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+- Full-screen TUI is back as the default interface; the inline CLI remains via
+  `crucible --inline` and as the automatic non-TTY fallback.
+- Live machine monitor (CPU · RAM · per-GPU util/VRAM/temp) on the Benchmark
+  and Session screens, and pinned under inline benchmark progress.
+- Reports screen in the TUI: browse benchmark reports & session transcripts.
+- Every config field now documents what it does and which mode uses it
+  (⚖ benchmark · ⚗ session), in both the TUI form and the inline config menu.
+- Session transcripts wired into the TUI; agent approval reworked to an async
+  callback (fixes prompt crash inside a running event loop).
+
 ## 0.1.0 — 2026-08-17
 
 Initial release.

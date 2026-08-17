@@ -18,6 +18,7 @@ classifiers = [
     "Topic :: System :: Benchmark",
 ]
 dependencies = [
+    "textual>=1.0",
     "rich>=13.0",
     "questionary>=2.0",
     "httpx>=0.27",
@@ -30,7 +31,7 @@ Homepage = "https://github.com/AthlasSoftware/crucible"
 Issues = "https://github.com/AthlasSoftware/crucible/issues"
 
 [project.scripts]
-crucible = "crucible.cli.main:main"
+crucible = "crucible.app:main"
 
 [dependency-groups]
 dev = [
