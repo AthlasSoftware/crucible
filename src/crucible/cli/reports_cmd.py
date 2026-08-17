@@ -20,7 +20,7 @@ def _label(entry: ReportEntry) -> str:
     return f"{_ICONS.get(entry.kind, '·')}  {when}  {entry.kind:<9}  {entry.title}"
 
 
-def run(cfg: Config) -> None:
+async def run(cfg: Config) -> None:
     rule("reports")
     while True:
         entries = list_reports()
@@ -29,14 +29,14 @@ def run(cfg: Config) -> None:
             return
         choices = [(_label(e), str(i)) for i, e in enumerate(entries)]
         choices.append(("← back", "back"))
-        picked = select(f"{len(entries)} report(s) — read which?", choices)
+        picked = await select(f"{len(entries)} report(s) — read which?", choices)
         if picked in (None, "back"):
             return
         entry = entries[int(picked)]
         console.print()
         console.print(Markdown(entry.path.read_text(encoding="utf-8")))
         console.print(f"\n[muted]file →[/] [accent]{entry.path}[/]")
-        action = select(
+        action = await select(
             "Next?",
             [("another report", "again"), ("open in $EDITOR", "editor"), ("← back", "back")],
             default="again",

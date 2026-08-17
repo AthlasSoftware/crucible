@@ -2,25 +2,19 @@
 
 from __future__ import annotations
 
-import asyncio
-
 from rich.markup import escape
 
 from crucible.cli.common import pick_backend, pick_models
-from crucible.cli.ui import confirm, console, interactive, rule, select, text
+from crucible.cli.ui import confirm, console, rule, select, text
 from crucible.config import Config
 from crucible.report import SessionTranscript
 from crucible.sessions import AgentCallbacks, AgentLoop, DockerSandbox
 from crucible.sessions.docker import SandboxError
 
 
-def run(cfg: Config) -> None:
+async def run(cfg: Config) -> None:
     rule("session")
-    asyncio.run(_run(cfg))
-
-
-async def _run(cfg: Config) -> None:
-    backend_name = pick_backend(cfg)
+    backend_name = await pick_backend(cfg)
     if backend_name is None:
         return
     backend, models = await pick_models(cfg, backend_name, multi=False)
@@ -67,7 +61,7 @@ async def _run(cfg: Config) -> None:
 
     async def request_approval(command: str) -> str:
         end_stream()
-        answer = select(
+        answer = await select(
             "Run this command?",
             [("run", "yes"), ("deny", "no"), ("auto — run everything from now on", "auto")],
             default="yes",
@@ -85,20 +79,39 @@ async def _run(cfg: Config) -> None:
         end_stream()
         transcript.assistant(text_.strip())
 
+    def on_command(command: str) -> None:
+        end_stream()
+        transcript.command(command)
+        console.print(f"[cmd]$ {escape(command)}[/]")
+
+    def on_mode_change(mode: str) -> None:
+        transcript.note(f"protocol switched to {mode} mode")
+        console.print(f"[muted]· protocol: {mode} mode[/]")
+
+    def on_done(summary: str) -> None:
+        end_stream()
+        transcript.done(summary)
+        console.print(f"[ok]✓ DONE:[/] {escape(summary)}")
+
+    def on_info(info: str) -> None:
+        end_stream()
+        transcript.note(info)
+        console.print(f"[muted]· {escape(info)}[/]")
+
+    def on_error(error: str) -> None:
+        end_stream()
+        transcript.note(f"error: {error}")
+        console.print(f"[err]✗ {escape(error)}[/]")
+
     callbacks = AgentCallbacks(
         on_chat_token=on_token,
         on_assistant_done=assistant_done,
-        on_command=lambda c: (end_stream(), transcript.command(c),
-                              console.print(f"[cmd]$ {escape(c)}[/]"))[-1],
+        on_command=on_command,
         on_output=on_output,
-        on_mode_change=lambda m: (transcript.note(f"protocol switched to {m} mode"),
-                                  console.print(f"[muted]· protocol: {m} mode[/]"))[-1],
-        on_done=lambda s: (end_stream(), transcript.done(s),
-                           console.print(f"[ok]✓ DONE:[/] {escape(s)}"))[-1],
-        on_info=lambda s: (end_stream(), transcript.note(s),
-                           console.print(f"[muted]· {escape(s)}[/]"))[-1],
-        on_error=lambda s: (end_stream(), transcript.note(f"error: {s}"),
-                            console.print(f"[err]✗ {escape(s)}[/]"))[-1],
+        on_mode_change=on_mode_change,
+        on_done=on_done,
+        on_info=on_info,
+        on_error=on_error,
         request_approval=request_approval,
     )
     agent = AgentLoop(backend, sandbox, model, cfg.sandbox, callbacks)
@@ -106,19 +119,14 @@ async def _run(cfg: Config) -> None:
     try:
         while True:
             console.print()
-            task = text("task ▸") if interactive() else text("task ▸", "")
+            task = await text("task ▸")
             if not task.strip():
-                if confirm("End the session?"):
+                if await confirm("End the session?"):
                     break
                 continue
             transcript.user(task.strip())
             console.print()
-            try:
-                await agent.run_task(task.strip())
-            except KeyboardInterrupt:
-                agent.request_stop()
-                end_stream()
-                console.print("\n[muted]· stopped[/]")
+            await agent.run_task(task.strip())
     finally:
         transcript.close()
         with console.status("[muted]destroying sandbox…[/]", spinner="dots"):

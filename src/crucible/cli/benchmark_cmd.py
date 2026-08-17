@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
-
 from rich.markdown import Markdown
 from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn
 from rich.table import Table
@@ -19,7 +17,7 @@ from crucible.report import render_benchmark_md
 
 def hardware_table() -> Table:
     hw = hardware.probe()
-    table = Table(title="Hardware", title_style="ember", border_style="grey30",
+    table = Table(title="Hardware", title_style="brand", border_style="grey30",
                   show_header=False, pad_edge=False)
     table.add_column(style="accent", no_wrap=True)
     table.add_column()
@@ -39,15 +37,12 @@ def hardware_table() -> Table:
     return table
 
 
-def run(cfg: Config) -> None:
+async def run(cfg: Config) -> None:
     rule("benchmark")
     console.print(hardware_table())
     console.print()
-    asyncio.run(_run(cfg))
 
-
-async def _run(cfg: Config) -> None:
-    backend_name = pick_backend(cfg)
+    backend_name = await pick_backend(cfg)
     if backend_name is None:
         return
     backend, models = await pick_models(cfg, backend_name, multi=True)
@@ -55,8 +50,8 @@ async def _run(cfg: Config) -> None:
         if not models:
             return
         try:
-            runs = max(1, int(text("Runs per prompt?", str(cfg.benchmark.runs))))
-            max_tokens = max(16, int(text("Max tokens?", str(cfg.benchmark.max_tokens))))
+            runs = max(1, int(await text("Runs per prompt?", str(cfg.benchmark.runs))))
+            max_tokens = max(16, int(await text("Max tokens?", str(cfg.benchmark.max_tokens))))
         except ValueError:
             console.print("[err]numbers, please[/]")
             return
@@ -69,14 +64,14 @@ async def _run(cfg: Config) -> None:
             f"[muted]{len(models)} model(s) × {per_model} generations, "
             f"max {params.max_tokens} tokens, warmup {'on' if params.warmup else 'off'}[/]"
         )
-        if not confirm("Fire?"):
+        if not await confirm("Fire?"):
             return
 
         report = None
         with Progress(
-            SpinnerColumn(style="ember"),
+            SpinnerColumn(style="brand"),
             TextColumn("[progress.description]{task.description}"),
-            BarColumn(complete_style="ember"),
+            BarColumn(complete_style="brand"),
             TextColumn("{task.completed}/{task.total}"),
             console=console,
         ) as progress:

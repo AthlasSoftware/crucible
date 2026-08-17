@@ -3,6 +3,10 @@
 Interactive terminals get refined arrow-key prompts (questionary); non-TTY
 usage (pipes, CI) falls back to plain numbered prompts, which doubles as a
 scriptable interface — empty input always means "accept the default".
+
+All prompts are async: the whole app runs in one event loop, and questionary
+drives prompt_toolkit via ask_async (its sync .ask() would crash inside a
+running loop).
 """
 
 from __future__ import annotations
@@ -24,13 +28,15 @@ from crucible.banner import (
     TAGLINE,
 )
 
-EMBER = "#ff8700"
+# Tempered steel, not glowing coals.
+BRAND = "#5fafd7"
+BRAND_LIGHT = "#87d7ff"
 
 console = Console(
     highlight=False,
     theme=Theme(
         {
-            "ember": f"bold {EMBER}",
+            "brand": f"bold {BRAND}",
             "accent": "cyan",
             "muted": "grey58",
             "ok": "green",
@@ -42,12 +48,12 @@ console = Console(
 
 QSTYLE = QStyle(
     [
-        ("qmark", f"fg:{EMBER} bold"),
+        ("qmark", f"fg:{BRAND} bold"),
         ("question", "bold"),
-        ("answer", f"fg:{EMBER}"),
-        ("pointer", f"fg:{EMBER} bold"),
-        ("highlighted", f"fg:{EMBER}"),
-        ("selected", "fg:#ffaf00"),
+        ("answer", f"fg:{BRAND}"),
+        ("pointer", f"fg:{BRAND} bold"),
+        ("highlighted", f"fg:{BRAND}"),
+        ("selected", f"fg:{BRAND_LIGHT}"),
         ("instruction", "fg:#666666"),
     ]
 )
@@ -63,7 +69,7 @@ def print_banner() -> None:
     art = BANNER_SMALL if small else BANNER
     width = BANNER_SMALL_WIDTH if small else BANNER_WIDTH
     console.print()
-    console.print(art, style="ember")
+    console.print(art, style="brand")
     console.print(SUBTITLE.rjust(width), style="muted")
     console.print(TAGLINE.center(width).rstrip(), style="italic")
     console.print()
@@ -71,17 +77,19 @@ def print_banner() -> None:
 
 def rule(title: str = "") -> None:
     console.print()
-    console.rule(f"[ember]{title}[/]" if title else "", style="grey30", align="left")
+    console.rule(f"[brand]{title}[/]" if title else "", style="grey30", align="left")
 
 
-def select(message: str, choices: list[tuple[str, str]], default: str | None = None) -> str | None:
+async def select(
+    message: str, choices: list[tuple[str, str]], default: str | None = None
+) -> str | None:
     """Pick one value; returns None on cancel/EOF."""
     if interactive():
         q_choices = [Choice(title=label, value=value) for label, value in choices]
         default_choice = next((c for c in q_choices if c.value == default), None)
-        return questionary.select(
+        return await questionary.select(
             message, choices=q_choices, default=default_choice, style=QSTYLE, qmark=QMARK
-        ).ask()
+        ).ask_async()
     console.print(f"[accent]{message}[/]")
     for i, (label, value) in enumerate(choices, 1):
         marker = " [muted](default)[/]" if value == default else ""
@@ -98,7 +106,7 @@ def select(message: str, choices: list[tuple[str, str]], default: str | None = N
         return None
 
 
-def checkbox(
+async def checkbox(
     message: str, choices: list[tuple[str, str]], preselected: set[str] | None = None
 ) -> list[str]:
     preselected = preselected or set()
@@ -107,7 +115,9 @@ def checkbox(
             Choice(title=label, value=value, checked=value in preselected)
             for label, value in choices
         ]
-        result = questionary.checkbox(message, choices=q_choices, style=QSTYLE, qmark=QMARK).ask()
+        result = await questionary.checkbox(
+            message, choices=q_choices, style=QSTYLE, qmark=QMARK
+        ).ask_async()
         return result or []
     console.print(f"[accent]{message}[/] [muted](comma-separated numbers, empty = default)[/]")
     for i, (label, value) in enumerate(choices, 1):
@@ -128,9 +138,11 @@ def checkbox(
     return picked
 
 
-def text(message: str, default: str = "") -> str:
+async def text(message: str, default: str = "") -> str:
     if interactive():
-        answer = questionary.text(message, default=default, style=QSTYLE, qmark=QMARK).ask()
+        answer = await questionary.text(
+            message, default=default, style=QSTYLE, qmark=QMARK
+        ).ask_async()
         return answer if answer is not None else default
     try:
         raw = input(f"{message} [{default}] > ").strip()
@@ -139,9 +151,11 @@ def text(message: str, default: str = "") -> str:
     return raw or default
 
 
-def confirm(message: str, default: bool = True) -> bool:
+async def confirm(message: str, default: bool = True) -> bool:
     if interactive():
-        answer = questionary.confirm(message, default=default, style=QSTYLE, qmark=QMARK).ask()
+        answer = await questionary.confirm(
+            message, default=default, style=QSTYLE, qmark=QMARK
+        ).ask_async()
         return bool(answer) if answer is not None else False
     try:
         raw = input(f"{message} [{'Y/n' if default else 'y/N'}] > ").strip().lower()

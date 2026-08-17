@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import os
 import subprocess
 
@@ -20,7 +19,7 @@ def _table(cfg: Config) -> Table:
     table.add_column(style="accent", no_wrap=True)
     table.add_column()
     endpoint = cfg.backend.endpoint()
-    table.add_row("backend", f"[ember]{cfg.backend.active}[/] @ {endpoint.base_url}")
+    table.add_row("backend", f"[brand]{cfg.backend.active}[/] @ {endpoint.base_url}")
     table.add_row("default model", endpoint.default_model or "[muted]first available[/]")
     table.add_row("benchmark", f"runs={cfg.benchmark.runs} · max_tokens={cfg.benchmark.max_tokens}"
                                f" · warmup={'on' if cfg.benchmark.warmup else 'off'}")
@@ -33,11 +32,11 @@ def _table(cfg: Config) -> Table:
     return table
 
 
-def run(cfg: Config) -> None:
+async def run(cfg: Config) -> None:
     rule("config")
     while True:
         console.print(_table(cfg))
-        action = select(
+        action = await select(
             "Change?",
             [
                 ("active backend", "backend"),
@@ -52,15 +51,15 @@ def run(cfg: Config) -> None:
         if action in (None, "back"):
             return
         if action == "backend":
-            choice = select("Active backend?", [(n, n) for n in BACKEND_NAMES],
-                            default=cfg.backend.active)
+            choice = await select("Active backend?", [(n, n) for n in BACKEND_NAMES],
+                                  default=cfg.backend.active)
             if choice:
                 cfg.backend.active = choice
         elif action == "model":
-            asyncio.run(_pick_default_model(cfg))
+            await _pick_default_model(cfg)
         elif action == "approval":
-            choice = select("Approval mode?", [(m, m) for m in APPROVAL_MODES],
-                            default=cfg.sandbox.approval)
+            choice = await select("Approval mode?", [(m, m) for m in APPROVAL_MODES],
+                                  default=cfg.sandbox.approval)
             if choice:
                 cfg.sandbox.approval = choice
         elif action == "network":
@@ -84,8 +83,8 @@ async def _pick_default_model(cfg: Config) -> None:
         models = await fetch_models(backend)
         if not models:
             return
-        choice = select("Default model?", [(m.id, m.id) for m in models],
-                        default=cfg.backend.endpoint().default_model or models[0].id)
+        choice = await select("Default model?", [(m.id, m.id) for m in models],
+                              default=cfg.backend.endpoint().default_model or models[0].id)
         if choice:
             cfg.backend.endpoint().default_model = choice
     finally:

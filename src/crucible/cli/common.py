@@ -7,8 +7,8 @@ from crucible.cli.ui import checkbox, console, select
 from crucible.config import BACKEND_NAMES, Config
 
 
-def pick_backend(cfg: Config) -> str | None:
-    return select(
+async def pick_backend(cfg: Config) -> str | None:
+    return await select(
         "Backend?",
         [(name, name) for name in BACKEND_NAMES],
         default=cfg.backend.active,
@@ -43,8 +43,8 @@ async def pick_models(cfg: Config, backend_name: str, multi: bool) -> tuple[LLMB
         return backend, [models[0].id]
     if multi:
         preselected = {default} if any(m.id == default for m in models) else {models[0].id}
-        picked = checkbox("Models to benchmark?", choices, preselected)
+        picked = await checkbox("Models to benchmark?", choices, preselected)
     else:
-        chosen = select("Model?", choices, default=default if default else models[0].id)
+        chosen = await select("Model?", choices, default=default if default else models[0].id)
         picked = [chosen] if chosen else []
     return backend, picked

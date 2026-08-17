@@ -41,6 +41,6 @@ Repository: https://github.com/AthlasSoftware/crucible · MIT © ATHLAS.IO
 """
 
 
-def run(cfg: Config) -> None:
+async def run(cfg: Config) -> None:
     rule("about")
     console.print(Markdown(ABOUT_MD))

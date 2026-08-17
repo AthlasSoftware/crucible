@@ -1,7 +1,8 @@
-"""CRUCIBLE entry point: banner, then the main menu loop — all inline."""
+"""CRUCIBLE entry point: banner, then the main menu loop — all inline, one event loop."""
 
 from __future__ import annotations
 
+import asyncio
 import subprocess
 import sys
 
@@ -28,6 +29,16 @@ _COMMANDS = {
 }
 
 
+async def _menu_loop() -> None:
+    cfg = load()
+    while True:
+        choice = await select("What are we testing today?", MENU)
+        if choice in (None, "quit"):
+            return
+        await _COMMANDS[choice](cfg)
+        console.print()
+
+
 def _cleanup_leftovers() -> None:
     """Belt & braces: remove session containers THIS process left behind (crashes,
     Ctrl+C mid-session). Other crucible instances' sessions are never touched."""
@@ -49,22 +60,13 @@ def main() -> None:
         print(f"crucible {__version__}")
         return
     print_banner()
-    cfg = load()
     try:
-        while True:
-            choice = select("What are we testing today?", MENU)
-            if choice in (None, "quit"):
-                break
-            try:
-                _COMMANDS[choice](cfg)
-            except KeyboardInterrupt:
-                console.print("\n[muted]· interrupted[/]")
-            console.print()
+        asyncio.run(_menu_loop())
     except KeyboardInterrupt:
         console.print()
     finally:
         _cleanup_leftovers()
-        console.print("[ember]forged & tested.[/] [muted]— CRUCIBLE[/]")
+        console.print("[brand]forged & tested.[/] [muted]— CRUCIBLE[/]")
 
 
 if __name__ == "__main__":
