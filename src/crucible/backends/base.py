@@ -1,0 +1,102 @@
+"""Shared backend types and the LLMBackend protocol."""
+
+from __future__ import annotations
+
+from collections.abc import AsyncIterator, Callable
+from dataclasses import dataclass, field
+from typing import Protocol
+
+
+class BackendError(Exception):
+    """A backend request failed (connection, HTTP error, bad payload)."""
+
+
+class ToolsUnsupported(BackendError):
+    """The backend/model rejected the tools parameter; fall back to fenced mode."""
+
+
+@dataclass
+class ModelInfo:
+    id: str
+    size_bytes: int | None = None
+    family: str | None = None
+    quant: str | None = None
+
+
+@dataclass
+class GenResult:
+    """One benchmark generation with timing. Durations in seconds.
+
+    prompt_eval_s and load_s are exact on Ollama's native API and None on
+    OpenAI-compatible backends; `approx` marks results where token counts came
+    from chunk counting rather than server-reported usage.
+    """
+
+    text: str
+    ttft_s: float
+    prompt_tokens: int
+    gen_tokens: int
+    gen_s: float
+    total_s: float
+    prompt_eval_s: float | None = None
+    load_s: float | None = None
+    approx: bool = False
+
+    @property
+    def gen_tps(self) -> float:
+        return self.gen_tokens / self.gen_s if self.gen_s > 0 else 0.0
+
+    @property
+    def prompt_tps(self) -> float:
+        # Exact when the server reported prompt eval time, else approximated
+        # from wall-clock time to first token.
+        denom = self.prompt_eval_s if self.prompt_eval_s else self.ttft_s
+        return self.prompt_tokens / denom if denom and denom > 0 else 0.0
+
+
+@dataclass
+class ToolCall:
+    id: str
+    name: str
+    arguments: dict
+
+
+@dataclass
+class ChatEvent:
+    """Streamed chat event: kind is "text", "tool_call" or "done"."""
+
+    kind: str
+    text: str = ""
+    tool_call: ToolCall | None = None
+    usage: dict | None = None
+
+
+@dataclass
+class ChatResponse:
+    """Aggregate of one assistant turn, assembled by the agent loop."""
+
+    text: str = ""
+    tool_calls: list[ToolCall] = field(default_factory=list)
+
+
+class LLMBackend(Protocol):
+    name: str
+
+    async def list_models(self) -> list[ModelInfo]: ...
+
+    async def generate_stream(
+        self,
+        model: str,
+        prompt: str,
+        max_tokens: int,
+        on_token: Callable[[str], None] | None = None,
+    ) -> GenResult: ...
+
+    def chat_stream(
+        self,
+        model: str,
+        messages: list[dict],
+        tools: list[dict] | None = None,
+    ) -> AsyncIterator[ChatEvent]: ...
+
+    async def close(self) -> None: ...

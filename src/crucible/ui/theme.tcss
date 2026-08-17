@@ -1,0 +1,203 @@
+/* CRUCIBLE — ember-on-charcoal look built on Textual theme variables. */
+
+#banner {
+    width: auto;
+    color: $warning;
+    text-style: bold;
+    margin-top: 2;
+    margin-bottom: 2;
+}
+
+HomeScreen {
+    align: center top;
+}
+
+HomeScreen OptionList {
+    width: 48;
+    height: auto;
+    border: round $warning 50%;
+    padding: 1 2;
+    background: transparent;
+}
+
+.screen-title {
+    text-style: bold;
+    color: $warning;
+    padding: 0 1;
+    margin-top: 1;
+}
+
+/* ---- Benchmark ---- */
+
+BenchmarkScreen TabbedContent {
+    height: 1fr;
+}
+
+#hw-table {
+    height: 1fr;
+}
+
+#bench-controls {
+    height: auto;
+    padding: 0 1;
+}
+
+#bench-controls Select {
+    width: 24;
+}
+
+#bench-params {
+    height: auto;
+    padding: 0 1;
+}
+
+#bench-params Input {
+    width: 14;
+}
+
+#bench-params Label {
+    padding: 1 0 0 1;
+    color: $text-muted;
+}
+
+#bench-models {
+    height: 8;
+    border: round $primary 50%;
+    margin: 0 1;
+}
+
+#bench-progress-row {
+    height: auto;
+    padding: 0 1;
+}
+
+#bench-status {
+    color: $text-muted;
+    padding: 0 1;
+    height: 1;
+}
+
+#bench-stream {
+    height: 3;
+    color: $text-muted;
+    padding: 0 1;
+    border: round $panel;
+    margin: 0 1;
+}
+
+#bench-results {
+    height: 1fr;
+    margin: 0 1;
+}
+
+#history-table {
+    height: 1fr;
+}
+
+#history-detail {
+    height: 1fr;
+}
+
+/* ---- Sessions ---- */
+
+#session-setup {
+    height: auto;
+    padding: 0 1;
+}
+
+#session-setup Select {
+    width: 32;
+}
+
+#session-panes {
+    height: 1fr;
+}
+
+#chat-log {
+    width: 1fr;
+    border: round $accent 50%;
+    border-title-color: $accent;
+    padding: 0 1;
+}
+
+#term-log {
+    width: 1fr;
+    border: round $success 50%;
+    border-title-color: $success;
+    padding: 0 1;
+    background: $surface;
+}
+
+#stream-tail {
+    height: auto;
+    max-height: 4;
+    color: $text-muted;
+    padding: 0 2;
+}
+
+#task-input {
+    margin: 0 1;
+}
+
+#session-status {
+    height: 1;
+    padding: 0 2;
+    color: $text-muted;
+    background: $panel;
+}
+
+/* ---- Config ---- */
+
+ConfigScreen VerticalScroll {
+    padding: 0 2;
+}
+
+ConfigScreen .form-row {
+    height: auto;
+    margin-bottom: 1;
+}
+
+ConfigScreen Label {
+    padding: 1 1 0 0;
+    width: 20;
+    color: $text-muted;
+}
+
+ConfigScreen Input {
+    width: 40;
+}
+
+ConfigScreen Select {
+    width: 40;
+}
+
+/* ---- About ---- */
+
+AboutScreen Markdown {
+    margin: 1 2;
+    max-width: 100;
+}
+
+/* ---- Modals ---- */
+
+ConfirmModal {
+    align: center middle;
+}
+
+#confirm-box {
+    width: 60;
+    height: auto;
+    border: thick $warning;
+    background: $surface;
+    padding: 1 2;
+}
+
+#confirm-box Horizontal {
+    height: auto;
+    align-horizontal: center;
+    margin-top: 1;
+}
+
+#confirm-box Button {
+    margin: 0 2;
+}

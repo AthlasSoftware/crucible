@@ -1,0 +1,58 @@
+[project]
+name = "crucible-llm"
+version = "0.1.0"
+description = "CRUCIBLE — an LLM testing grounds: benchmark local models and drop LLMs into sandboxed terminals, all from your terminal."
+readme = "README.md"
+license = { file = "LICENSE" }
+authors = [{ name = "ATHLAS.IO", email = "carl@athlas.io" }]
+requires-python = ">=3.12"
+keywords = ["llm", "benchmark", "ollama", "vllm", "tui", "sandbox", "agent"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: System :: Benchmark",
+]
+dependencies = [
+    "textual>=1.0",
+    "httpx>=0.27",
+    "psutil>=6.0",
+    "tomli-w>=1.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/athlas-io/crucible"
+Issues = "https://github.com/athlas-io/crucible/issues"
+
+[project.scripts]
+crucible = "crucible.app:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.24",
+    "ruff>=0.6",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/crucible"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B"]
+ignore = ["E501"]
