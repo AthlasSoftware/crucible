@@ -11,6 +11,7 @@ import sys
 from textual import work
 from textual.app import App
 from textual.binding import Binding
+from textual.theme import Theme
 
 from crucible import __version__
 from crucible.config import Config, load
@@ -22,6 +23,18 @@ from crucible.ui.home import HomeScreen
 from crucible.ui.reports_ui import ReportsScreen
 from crucible.ui.session_ui import SessionScreen
 from crucible.ui.widgets import ConfirmModal
+
+# Tempered steel — no glowing-coal oranges anywhere.
+CRUCIBLE_THEME = Theme(
+    name="crucible",
+    primary="#5fafd7",
+    secondary="#0178D4",
+    accent="#87d7ff",
+    warning="#d7af5f",
+    error="#ba3c5b",
+    success="#4EBF71",
+    foreground="#e0e0e0",
+)
 
 
 class CrucibleApp(App):
@@ -47,6 +60,8 @@ class CrucibleApp(App):
         self.live_sandboxes: list[DockerSandbox] = []
 
     def on_mount(self) -> None:
+        self.register_theme(CRUCIBLE_THEME)
+        self.theme = "crucible"
         self.push_screen("home")
 
     # ---- sandbox registry (for quit guard + cleanup) ------------------------

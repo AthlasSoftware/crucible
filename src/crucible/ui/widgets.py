@@ -50,7 +50,7 @@ class ConfirmModal(ModalScreen[bool]):
         with Vertical(id="confirm-box"):
             yield Static(self.question)
             with Horizontal():
-                yield Button(self.yes_label, variant="warning", id="confirm-yes")
+                yield Button(self.yes_label, variant="primary", id="confirm-yes")
                 yield Button(self.no_label, id="confirm-no")
 
     def on_button_pressed(self, event: Button.Pressed) -> None:

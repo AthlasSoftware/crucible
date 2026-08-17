@@ -55,7 +55,7 @@ class BenchmarkScreen(Screen):
                         allow_blank=False,
                     )
                     yield Button("Reload models", id="bench-reload")
-                    yield Button("Start", variant="warning", id="bench-start")
+                    yield Button("Start", variant="primary", id="bench-start")
                     yield Button("Stop", id="bench-stop", disabled=True)
                 yield SelectionList(id="bench-models")
                 with Horizontal(id="bench-params"):

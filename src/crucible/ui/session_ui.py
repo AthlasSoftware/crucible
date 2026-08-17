@@ -38,7 +38,7 @@ class SessionScreen(Screen):
         with Horizontal(id="session-setup"):
             yield Select([(n, n) for n in BACKEND_NAMES], id="sess-backend", allow_blank=False)
             yield Select([], id="sess-model", prompt="model…")
-            yield Button("Start session", variant="warning", id="sess-start")
+            yield Button("Start session", variant="primary", id="sess-start")
         with Horizontal(id="session-panes"):
             yield RichLog(id="chat-log", markup=True, wrap=True)
             yield RichLog(id="term-log", markup=True, wrap=True)

@@ -2,7 +2,7 @@
 
 #banner {
     width: auto;
-    color: $warning;
+    color: $primary;
     text-style: bold;
     margin-top: 2;
     margin-bottom: 2;
@@ -15,14 +15,14 @@ HomeScreen {
 HomeScreen OptionList {
     width: 48;
     height: auto;
-    border: round $warning 50%;
+    border: round $primary 50%;
     padding: 1 2;
     background: transparent;
 }
 
 .screen-title {
     text-style: bold;
-    color: $warning;
+    color: $primary;
     padding: 0 1;
     margin-top: 1;
 }
@@ -217,7 +217,7 @@ ConfirmModal {
 #confirm-box {
     width: 60;
     height: auto;
-    border: thick $warning;
+    border: thick $primary;
     background: $surface;
     padding: 1 2;
 }
