@@ -25,8 +25,8 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/athlas-io/crucible"
-Issues = "https://github.com/athlas-io/crucible/issues"
+Homepage = "https://github.com/AthlasSoftware/crucible"
+Issues = "https://github.com/AthlasSoftware/crucible/issues"
 
 [project.scripts]
 crucible = "crucible.app:main"

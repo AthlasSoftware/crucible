@@ -46,7 +46,7 @@ network, approval mode).
 
 ## Links
 
-- Repository: `https://github.com/athlas-io/crucible`
+- Repository: `https://github.com/AthlasSoftware/crucible`
 - License: MIT © ATHLAS.IO
 """
 
