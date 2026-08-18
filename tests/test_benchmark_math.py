@@ -79,8 +79,10 @@ def test_run_row_latency_fields():
 
 
 def test_summarize_pools_itl():
-    r1 = _result(); r1.chunk_offsets_s = [0.1, 0.2, 0.3]
-    r2 = _result(); r2.chunk_offsets_s = [0.1, 0.6, 1.1]  # slow run
+    r1 = _result()
+    r1.chunk_offsets_s = [0.1, 0.2, 0.3]
+    r2 = _result()
+    r2.chunk_offsets_s = [0.1, 0.6, 1.1]  # slow run
     s = summarize([run_row("a", r1), run_row("b", r2)])
     # pooled: gaps 100,100,500,500 ms — p99 must see the stutter
     assert s["itl_ms"]["p99"] > 400
