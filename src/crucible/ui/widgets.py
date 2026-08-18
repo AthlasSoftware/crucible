@@ -54,6 +54,69 @@ class HardwareBar(Static):
         self.app.call_from_thread(self.update, f"[dim]{hardware.status_line(hw)}[/]")
 
 
+_SPARK = "▁▂▃▄▅▆▇█"
+_HIST_LEN = 12
+_VRAM_BAR = 10
+
+
+class MachineMonitor(Static):
+    """Home-screen machine panel: hardware summary + live per-GPU sparkline
+    (utilization history) and VRAM meter, so you can see at a glance whether
+    the cards are free. Probes in a thread every 2s while its screen is active.
+    """
+
+    def on_mount(self) -> None:
+        self._hist: dict[int, list[int]] = {}
+        self.update("[dim]· probing machine …[/]")
+        self._probe()
+        self.set_interval(2.0, self._probe)
+
+    @work(thread=True, exclusive=True, group="machine-mon")
+    def _probe(self) -> None:
+        if self.screen is not self.app.screen:
+            return
+        hw = hardware.probe()
+        self.app.call_from_thread(self._render_hw, hw)
+
+    @staticmethod
+    def _spark(history: list[int]) -> str:
+        pad = [0] * (_HIST_LEN - len(history)) + history
+        return "".join(_SPARK[min(7, u * 8 // 101)] for u in pad)
+
+    def _render_hw(self, hw: hardware.HardwareInfo) -> None:
+        cpu = hw.cpu_model.replace(" Processor", "").replace("(R)", "").strip()
+        lines = [
+            f"[dim]{cpu} · {hw.cores_physical}c/{hw.cores_logical}t · "
+            f"{hw.ram_total_gb:.0f}G RAM · {hw.os_name}[/]",
+            "",
+        ]
+        if not hw.gpus:
+            frac = hw.ram_used_gb / hw.ram_total_gb if hw.ram_total_gb else 0
+            filled = round(frac * _VRAM_BAR)
+            bar = "█" * filled + "[dim]░[/]" * (_VRAM_BAR - filled)
+            lines.append(f"[dim]no NVIDIA GPU — cpu[/] {hw.load_pct:3.0f}%  "
+                         f"[dim]ram[/] {bar} {hw.ram_used_gb:.1f}/{hw.ram_total_gb:.0f}G")
+        for i, gpu in enumerate(hw.gpus):
+            history = self._hist.setdefault(i, [])
+            history.append(gpu.util_pct)
+            del history[:-_HIST_LEN]
+            name = gpu.name.replace("NVIDIA GeForce ", "")
+            frac = gpu.vram_used_mb / gpu.vram_total_mb if gpu.vram_total_mb else 0
+            filled = round(frac * _VRAM_BAR)
+            bar = "█" * filled + "[dim]░[/]" * (_VRAM_BAR - filled)
+            free = gpu.util_pct < 5 and frac < 0.10
+            status = ("[green]● free[/]" if free
+                      else "[#d7af5f]● busy[/]" if frac > 0.85 or gpu.util_pct > 80
+                      else "[#5fafd7]● in use[/]")
+            lines.append(
+                f"[bold]GPU{i}[/] [dim]{name}[/]  "
+                f"[#5fafd7]{self._spark(history)}[/] {gpu.util_pct:3d}%  "
+                f"[dim]vram[/] {bar} {gpu.vram_used_mb / 1024:4.1f}/"
+                f"{gpu.vram_total_mb / 1024:.0f}G  [dim]{gpu.temp_c}°C[/]  {status}"
+            )
+        self.update("\n".join(lines))
+
+
 class ConfirmModal(ModalScreen[bool]):
     """A yes/no question; dismisses with True/False."""
 

@@ -10,7 +10,7 @@ from textual.widgets.option_list import Option
 from crucible import __version__
 from crucible.banner import BANNER_WIDTH, assemble
 from crucible.report import list_reports
-from crucible.ui.widgets import ScreenHeader
+from crucible.ui.widgets import MachineMonitor, ScreenHeader
 
 MENU = [
     ("benchmark", "⚖  Benchmark", "measure model speed on this machine"),
@@ -40,6 +40,9 @@ class HomeScreen(Screen):
     def compose(self) -> ComposeResult:
         yield ScreenHeader("CRUCIBLE", f"v{__version__}")
         yield Static(assemble(), id="banner")
+        machine = MachineMonitor(id="machine")
+        machine.border_title = "machine"
+        yield machine
         yield OptionList(*[_option(*m) for m in MENU], id="menu")
         yield Static("", id="home-status")
         yield Static("↑↓ + enter · or press a key", id="home-hint")

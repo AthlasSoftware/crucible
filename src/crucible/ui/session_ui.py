@@ -41,6 +41,8 @@ _BADGES = {
 
 
 class SessionScreen(Screen):
+    _stage = "sess-setup"  # check_action can run before on_mount
+
     BINDINGS = [
         ("escape", "app.pop_screen", "Back"),
         ("c", "goto_config", "Config"),
@@ -277,7 +279,7 @@ class SessionScreen(Screen):
             f"Terminal · {sandbox_cfg.image} · net {'on' if sandbox_cfg.network else 'off'}"
         )
         self._set_stage("sess-run")
-        self._chat(f"[$success]✓[/] [dim]sandbox {sandbox.name} ready — "
+        self._chat(f"[green]✓[/] [dim]sandbox {sandbox.name} ready — "
                    f"{model} on {backend_name}[/]")
         self._chat('[dim]Describe a task below. Try: "install cowsay and draw a cow '
                    'saying hi"[/]')
@@ -303,7 +305,7 @@ class SessionScreen(Screen):
             self.notify("Agent is busy — stop it first (ctrl+s)", severity="warning")
             return
         event.input.value = ""
-        self._chat(f"[bold $accent]you ▸[/] {escape(text)}")
+        self._chat(f"[bold #87d7ff]you ▸[/] {escape(text)}")
         if self.transcript:
             self.transcript.user(text)
         self._run_task(text)
@@ -350,12 +352,12 @@ class SessionScreen(Screen):
 
     def _on_assistant_done(self, text: str) -> None:
         self._stream_clear()
-        self._chat(f"[bold $primary]model ▸[/] {escape(text.strip())}")
+        self._chat(f"[bold #5fafd7]model ▸[/] {escape(text.strip())}")
         if self.transcript:
             self.transcript.assistant(text.strip())
 
     def _on_command(self, command: str) -> None:
-        self._chat(f"[bold $warning]$ {escape(command)}[/]")
+        self._chat(f"[bold #d7af5f]$ {escape(command)}[/]")
         if self.transcript:
             self.transcript.command(command)
 
@@ -363,7 +365,7 @@ class SessionScreen(Screen):
         term = self._widget("#term-log", RichLog)
         if term:
             if stream == "stderr":
-                term.write(f"[$error]{escape(line)}[/]")
+                term.write(f"[red]{escape(line)}[/]")
             elif stream == "info":
                 term.write(f"[dim]{escape(line)}[/]")
             else:
@@ -377,7 +379,7 @@ class SessionScreen(Screen):
             self.transcript.note(f"protocol switched to {mode} mode")
 
     def _on_done(self, summary: str) -> None:
-        self._chat(f"[bold $success]✓ DONE:[/] {escape(summary)}")
+        self._chat(f"[bold green]✓ DONE:[/] {escape(summary)}")
         if self.transcript:
             self.transcript.done(summary)
 
@@ -387,7 +389,7 @@ class SessionScreen(Screen):
             self.transcript.note(info)
 
     def _on_error(self, error: str) -> None:
-        self._chat(f"[bold $error]✗ error:[/] {escape(error)}")
+        self._chat(f"[bold red]✗ error:[/] {escape(error)}")
         if self.transcript:
             self.transcript.note(f"error: {error}")
 

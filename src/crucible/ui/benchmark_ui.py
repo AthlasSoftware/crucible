@@ -48,6 +48,9 @@ RESULT_COLUMNS = (
 
 
 class BenchmarkScreen(Screen):
+    _stage = "bench-setup"  # check_action can run before on_mount
+    _backend_error = False
+
     BINDINGS = [
         ("escape", "app.pop_screen", "Back"),
         ("s", "start_stop", "start · stop"),

@@ -112,7 +112,7 @@ HomeScreen ScreenHeader {
 }
 
 #menu {
-    width: 60;
+    width: 78;
     height: auto;
     border: round $primary 30%;
     padding: 1 2;
@@ -412,4 +412,13 @@ ApprovalModal {
 
 #bench-steps .step-hint {
     padding: 1 0 0 1;
+}
+
+#machine {
+    width: 78;
+    height: auto;
+    border: round $primary 30%;
+    border-title-color: $text-muted;
+    padding: 0 2;
+    margin-bottom: 1;
 }

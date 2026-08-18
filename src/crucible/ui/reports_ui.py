@@ -30,6 +30,8 @@ def _label(entry: ReportEntry) -> str:
 
 
 class ReportsScreen(Screen):
+    _entries: list = []  # check_action can run before on_mount
+
     BINDINGS = [
         ("escape", "back", "Back"),
         ("enter", "read", "Read", ),
