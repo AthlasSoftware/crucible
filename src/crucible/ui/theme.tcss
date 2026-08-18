@@ -1,210 +1,342 @@
-/* CRUCIBLE — ember-on-charcoal look built on Textual theme variables. */
+/* CRUCIBLE — tempered steel on charcoal, Magnitude-school calm:
+ * ONE rounded hero panel per screen, uppercase dim micro-headers instead of
+ * boxes-in-boxes, hints as quiet text lines, a slim ambient bar at the bottom.
+ *
+ * Color semantics:
+ *   $primary  — structure & the path: crumb, hero border, THE primary action
+ *   $accent   — content highlights only, sparingly
+ *   $warning  — exactly one meaning: a decision is pending
+ *   muted     — the guidance layer; it must recede
+ */
+
+/* ---- shared vocabulary ---- */
+
+.hero {
+    border: round $primary 30%;
+    padding: 1 3;
+    margin: 0 2;
+    height: 1fr;
+}
+
+.micro {
+    color: $text-muted;
+    text-style: bold;
+    margin-top: 1;
+    height: auto;
+}
+
+.micro.first {
+    margin-top: 0;
+}
+
+ScreenHeader {
+    height: 1;
+    padding: 0 2;
+    margin-top: 1;
+}
+
+#crumb {
+    width: auto;
+    text-style: bold;
+    color: $primary;
+}
+
+#context {
+    width: 1fr;
+    color: $text-muted;
+    text-align: right;
+}
+
+Rule {
+    color: $panel;
+    margin: 0 1;
+}
+
+.step-hint {
+    color: $text-muted;
+}
+
+.btn-compact {
+    height: 1;
+    min-width: 0;
+    border: none;
+    padding: 0 1;
+    margin: 1 0 0 1;
+    background: transparent;
+    color: $text-muted;
+}
+
+.btn-compact:hover {
+    color: $primary;
+}
+
+.cta {
+    width: 100%;
+    height: 3;
+    margin: 1 0 0 0;
+}
+
+HardwareBar {
+    height: 1;
+    padding: 0 3;
+    color: $text-muted;
+}
+
+OptionList, SelectionList {
+    background: transparent;
+    border: none;
+    padding: 0;
+}
+
+Label {
+    padding: 1 1 0 0;
+    color: $text-muted;
+}
+
+/* ---- Home ---- */
+
+HomeScreen {
+    align: center top;
+}
+
+HomeScreen ScreenHeader {
+    dock: top;
+}
 
 #banner {
     width: auto;
     color: $primary;
     text-style: bold;
     margin-top: 2;
-    margin-bottom: 2;
+    margin-bottom: 1;
 }
 
-HomeScreen {
-    align: center top;
-}
-
-HomeScreen OptionList {
-    width: 48;
+#menu {
+    width: 60;
     height: auto;
-    border: round $primary 50%;
+    border: round $primary 30%;
     padding: 1 2;
-    background: transparent;
+    margin-bottom: 1;
 }
 
-.screen-title {
-    text-style: bold;
-    color: $primary;
-    padding: 0 1;
-    margin-top: 1;
+#menu:focus {
+    border: round $primary 60%;
 }
 
-/* ---- Benchmark ---- */
-
-BenchmarkScreen TabbedContent {
-    height: 1fr;
-}
-
-#hw-table {
-    height: 1fr;
-}
-
-#bench-controls {
-    height: auto;
-    padding: 0 1;
-}
-
-#bench-controls Select {
-    width: 24;
-}
-
-#bench-params {
-    height: auto;
-    padding: 0 1;
-}
-
-#bench-params Input {
-    width: 14;
-}
-
-#bench-params Label {
-    padding: 1 0 0 1;
+#home-status, #home-hint {
+    width: auto;
     color: $text-muted;
+}
+
+/* ---- stages ---- */
+
+ContentSwitcher {
+    height: 1fr;
+}
+
+#bench-setup-cols {
+    height: 1fr;
+}
+
+#bench-steps {
+    width: 1fr;
 }
 
 #bench-models {
-    height: 8;
-    border: round $primary 50%;
-    margin: 0 1;
+    height: 1fr;
+    min-height: 4;
 }
 
-#bench-progress-row {
-    height: auto;
-    padding: 0 1;
-}
-
-#bench-status {
+#bench-models-msg, #sess-models-msg {
     color: $text-muted;
-    padding: 0 1;
+}
+
+#bench-history-panel {
+    width: 36;
+    margin-left: 3;
+}
+
+#bench-history {
+    height: 1fr;
+}
+
+#bench-runs {
+    width: 8;
+}
+
+#bench-maxtok {
+    width: 9;
+}
+
+#step-backend Select {
+    width: 30;
+}
+
+/* run stage */
+
+Bar > .bar--bar {
+    color: $primary;
+}
+
+#bench-phase {
     height: 1;
+    color: $text-muted;
+}
+
+#bench-progress {
+    width: 100%;
+    margin-top: 1;
 }
 
 #bench-stream {
     height: 3;
     color: $text-muted;
-    padding: 0 1;
-    border: round $panel;
-    margin: 0 1;
 }
 
-#bench-results {
-    height: 1fr;
-    margin: 0 1;
+#bench-stop {
+    margin-top: 2;
 }
 
-#history-table {
-    height: 1fr;
-}
+/* results stage */
 
-#history-detail {
-    height: 1fr;
-}
-
-/* ---- Sessions ---- */
-
-#session-setup {
+#results-table {
     height: auto;
-    padding: 0 1;
+    max-height: 1fr;
+    margin-top: 1;
 }
 
-#session-setup Select {
-    width: 32;
+#results-saved {
+    color: $text-muted;
+    margin-top: 1;
+}
+
+#results-errors {
+    color: $text-muted;
+}
+
+#results-actions {
+    height: auto;
+    margin-top: 1;
+}
+
+#results-actions Button {
+    margin-right: 2;
+}
+
+/* ---- Session ---- */
+
+#sess-setup Horizontal {
+    height: auto;
+}
+
+#sess-backend, #sess-model {
+    width: 34;
+    margin-right: 2;
+}
+
+#sess-approval {
+    width: 24;
+}
+
+#sess-approval-hint {
+    padding: 1 0 0 2;
+    color: $text-muted;
+}
+
+#sess-approval-hint.caution {
+    color: $warning;
+}
+
+#sess-explain {
+    color: $text-muted;
+    margin-top: 1;
+}
+
+#sess-run {
+    padding: 0 2;
 }
 
 #session-panes {
     height: 1fr;
 }
 
-#chat-log {
+#chat-log, #term-log {
     width: 1fr;
-    border: round $accent 50%;
-    border-title-color: $accent;
+    border: round $primary 20%;
+    border-title-color: $text-muted;
     padding: 0 1;
 }
 
-#term-log {
-    width: 1fr;
-    border: round $success 50%;
-    border-title-color: $success;
-    padding: 0 1;
-    background: $surface;
+#chat-log:focus, #term-log:focus {
+    border: round $primary 60%;
 }
 
 #stream-tail {
-    height: auto;
-    max-height: 4;
+    height: 1;
     color: $text-muted;
     padding: 0 2;
 }
 
 #task-input {
-    margin: 0 1;
-}
-
-#session-status {
-    height: 1;
-    padding: 0 2;
-    color: $text-muted;
-    background: $panel;
-}
-
-/* ---- Config ---- */
-
-ConfigScreen VerticalScroll {
-    padding: 0 2;
-}
-
-ConfigScreen .form-row {
-    height: auto;
-    margin-bottom: 1;
-}
-
-ConfigScreen Label {
-    padding: 1 1 0 0;
-    width: 20;
-    color: $text-muted;
-}
-
-ConfigScreen Input {
-    width: 40;
-}
-
-ConfigScreen Select {
-    width: 40;
-}
-
-/* ---- About ---- */
-
-AboutScreen Markdown {
-    margin: 1 2;
-    max-width: 100;
-}
-
-/* ---- Shared ---- */
-
-HardwareBar {
-    height: 1;
-    padding: 0 2;
-    background: $panel;
-}
-
-ConfigScreen .form-desc {
-    height: auto;
-    padding: 0 0 1 4;
+    margin-top: 1;
 }
 
 /* ---- Reports ---- */
 
-#reports-body {
+#reports-list {
+    width: 42;
+    margin-right: 3;
+}
+
+#reports-options {
     height: 1fr;
 }
 
-#reports-list {
-    width: 58;
-    border: round $primary 50%;
-    margin: 0 1;
+#report-view-scroll {
+    padding: 0 1;
 }
 
-#report-view-scroll {
-    border: round $panel;
+/* ---- Config ---- */
+
+ConfigScreen .form-row {
+    height: auto;
+}
+
+ConfigScreen .form-row Label {
+    width: 18;
+    text-align: right;
+    padding: 1 1 0 0;
+}
+
+ConfigScreen .form-row Input, ConfigScreen .form-row Select {
+    width: 34;
+}
+
+ConfigScreen .form-desc-inline {
+    width: 1fr;
+    padding: 1 0 0 2;
+    color: $text-muted;
+}
+
+#cfg-actions {
+    height: auto;
+    padding: 0 3;
+    margin-top: 1;
+}
+
+#cfg-save {
+    margin-right: 2;
+}
+
+#cfg-dirty {
+    color: $warning;
+    padding: 1 0 0 0;
+}
+
+/* ---- About ---- */
+
+#about-scroll {
+    max-width: 84;
     padding: 0 2;
 }
 
@@ -217,7 +349,7 @@ ConfirmModal {
 #confirm-box {
     width: 60;
     height: auto;
-    border: thick $primary;
+    border: round $primary;
     background: $surface;
     padding: 1 2;
 }
@@ -230,4 +362,54 @@ ConfirmModal {
 
 #confirm-box Button {
     margin: 0 2;
+}
+
+ApprovalModal {
+    align: center middle;
+}
+
+#approval-box {
+    width: 72;
+    height: auto;
+    border: round $warning;
+    background: $surface;
+    padding: 1 3;
+}
+
+#approval-title {
+    text-style: bold;
+    color: $warning;
+}
+
+#approval-context {
+    color: $text-muted;
+    margin-top: 1;
+}
+
+#approval-cmd-scroll {
+    max-height: 8;
+    height: auto;
+    margin: 1 0;
+}
+
+#approval-cmd {
+    text-style: bold;
+}
+
+#approval-buttons {
+    height: auto;
+    align-horizontal: center;
+}
+
+#approval-buttons Button {
+    margin: 0 1;
+}
+
+#approval-help {
+    color: $text-muted;
+    margin-top: 1;
+}
+
+#bench-steps .step-hint {
+    padding: 1 0 0 1;
 }

@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 from textual.app import ComposeResult
-from textual.containers import VerticalScroll
+from textual.containers import Center, VerticalScroll
 from textual.screen import Screen
-from textual.widgets import Footer, Markdown, Static
+from textual.widgets import Footer, Markdown, Rule
 
 from crucible import __version__
+from crucible.ui.widgets import ScreenHeader
 
 ABOUT_MD = f"""
 # CRUCIBLE v{__version__}
@@ -19,30 +20,31 @@ severe trial that produces something new. This one is for language models.
 
 ## What it does
 
-**⚖ Benchmark.** Inspect the machine you're on (CPU, RAM, disk, and live per-GPU
-VRAM/utilization) and measure model speed: time-to-first-token, prompt
-processing and generation tokens/s. Ollama runs report *exact* server-side
-timings; OpenAI-compatible backends (vLLM and friends) report streamed usage
-counts. Every run is saved as JSON history for comparison.
+**⚖ Benchmark.** Measure model speed on this machine: time-to-first-token,
+prompt processing and generation tokens/s, with a live hardware readout while
+it runs. Ollama runs report *exact* server-side timings; OpenAI-compatible
+backends (vLLM and friends) report streamed usage counts. Every run ends with
+a Markdown report, saved for comparison.
 
-**⚗ Sessions.** Spawn a disposable Docker container and hand an LLM the keys:
-the model gets a `run_shell` tool (or a fenced-block protocol when the backend
-doesn't support tool calling) and works through your task command by command.
-You approve each command — or flip to auto and watch it go. Chat on the left,
-terminal on the right.
+**⚗ Session.** Spawn a disposable Docker container and hand a model the keys:
+it gets a `run_shell` tool (or a fenced-block protocol when the backend has no
+tool calling) and works through your task one command at a time. You approve
+each command in a modal — or flip to auto and watch it go. A Markdown
+transcript is written live.
 
-**⚙ Config.** One TOML file (`~/.config/crucible/config.toml`) selects your
-backend — **Ollama**, **vLLM**, or any OpenAI-compatible endpoint — plus model
-defaults, benchmark parameters, and sandbox limits (image, CPU, memory,
-network, approval mode).
+**⌾ Reports.** Every benchmark and session is saved automatically; browse and
+read them without leaving the terminal.
 
-## Design notes
+**⚙ Config.** One TOML file selects your backend — **Ollama**, **vLLM**, or any
+OpenAI-compatible endpoint — plus model defaults, benchmark parameters, and
+sandbox limits. Every setting says what it does and which mode uses it.
 
-- Pure client: CRUCIBLE binds no ports and stores nothing but local JSON.
-- Sandboxes are labeled `crucible.session=…`, resource-limited, offline by
-  default, and purged on exit.
-- Four runtime dependencies. MIT licensed. Built with
-  [Textual](https://textual.textualize.io).
+## Keys
+
+- **Global** — `esc` back · `ctrl+q` quit
+- **Benchmark** — `s` start / stop
+- **Session** — `ctrl+s` stop task · `ctrl+t` auto on/off · `ctrl+d` end session
+- **Approval modal** — `y` run · `n` deny · `a` auto from now on
 
 ## Links
 
@@ -55,7 +57,9 @@ class AboutScreen(Screen):
     BINDINGS = [("escape", "app.pop_screen", "Back")]
 
     def compose(self) -> ComposeResult:
-        yield Static("CRUCIBLE — About", classes="screen-title")
-        with VerticalScroll():
-            yield Markdown(ABOUT_MD)
+        yield ScreenHeader("CRUCIBLE ▸ About", f"v{__version__} · MIT · ATHLAS.IO")
+        yield Rule()
+        with Center():
+            with VerticalScroll(id="about-scroll"):
+                yield Markdown(ABOUT_MD)
         yield Footer()

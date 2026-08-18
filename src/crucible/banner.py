@@ -22,11 +22,11 @@ TAGLINE = "The LLM testing grounds"
 
 
 def assemble(small: bool = False) -> str:
-    """Banner + subtitle + tagline as one block, aligned to the art's width."""
+    """Banner + tagline as one block, aligned to the art's width.
+
+    Branding ("POWERED BY ATHLAS.IO") deliberately lives on the About page,
+    not here — the home screen stays calm.
+    """
     art = BANNER_SMALL if small else BANNER
     width = BANNER_SMALL_WIDTH if small else BANNER_WIDTH
-    return (
-        f"{art}\n"
-        f"[dim]{SUBTITLE.rjust(width)}[/]\n\n"
-        f"[italic]{TAGLINE.center(width).rstrip()}[/]"
-    )
+    return f"{art}\n[dim italic]{TAGLINE.center(width).rstrip()}[/]"
