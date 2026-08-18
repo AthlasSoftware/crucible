@@ -76,10 +76,13 @@ Rule {
     margin: 1 0 0 0;
 }
 
-HardwareBar {
-    height: 1;
+#bench-hw, #session-hw {
+    height: auto;
     padding: 0 3;
-    color: $text-muted;
+}
+
+#home-purge {
+    margin-bottom: 1;
 }
 
 OptionList, SelectionList {

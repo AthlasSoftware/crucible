@@ -33,37 +33,23 @@ class ScreenHeader(Horizontal):
         self.query_one("#context", Static).update(context)
 
 
-class HardwareBar(Static):
-    """Self-refreshing one-line machine readout: CPU · RAM · per-GPU util/VRAM/temp.
-
-    Probes in a thread (nvidia-smi can stall when GPUs are busy) on a 2s tick,
-    but only while its screen is the active one. The single hardware poller in
-    the app.
-    """
-
-    def on_mount(self) -> None:
-        self.update("[dim]· gathering hardware stats …[/]")
-        self._probe()
-        self.set_interval(2.0, self._probe)
-
-    @work(thread=True, exclusive=True, group="hwbar")
-    def _probe(self) -> None:
-        if self.screen is not self.app.screen:
-            return
-        hw = hardware.probe()
-        self.app.call_from_thread(self.update, f"[dim]{hardware.status_line(hw)}[/]")
-
-
 _SPARK = "▁▂▃▄▅▆▇█"
 _HIST_LEN = 12
 _VRAM_BAR = 10
 
 
 class MachineMonitor(Static):
-    """Home-screen machine panel: hardware summary + live per-GPU sparkline
-    (utilization history) and VRAM meter, so you can see at a glance whether
-    the cards are free. Probes in a thread every 2s while its screen is active.
+    """Live machine panel: hardware summary + per-GPU sparkline (utilization
+    history) and VRAM meter, so you can see at a glance whether the cards are
+    free. Probes in a thread every 2s while its screen is active.
+
+    compact=True drops the static summary line — the form used under live
+    benchmark/session views.
     """
+
+    def __init__(self, *args, compact: bool = False, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.compact = compact
 
     def on_mount(self) -> None:
         self._hist: dict[int, list[int]] = {}
@@ -85,7 +71,7 @@ class MachineMonitor(Static):
 
     def _render_hw(self, hw: hardware.HardwareInfo) -> None:
         cpu = hw.cpu_model.replace(" Processor", "").replace("(R)", "").strip()
-        lines = [
+        lines = [] if self.compact else [
             f"[dim]{cpu} · {hw.cores_physical}c/{hw.cores_logical}t · "
             f"{hw.ram_total_gb:.0f}G RAM · {hw.os_name}[/]",
             "",

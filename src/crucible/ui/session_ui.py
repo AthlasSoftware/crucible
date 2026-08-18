@@ -28,7 +28,7 @@ from crucible.backends import BackendError, get_backend
 from crucible.config import APPROVAL_MODES, BACKEND_NAMES
 from crucible.report import SessionTranscript
 from crucible.sessions import AgentCallbacks, AgentLoop, AgentState, DockerSandbox, protocol
-from crucible.ui.widgets import ApprovalModal, ConfirmModal, HardwareBar, ScreenHeader
+from crucible.ui.widgets import ApprovalModal, ConfirmModal, MachineMonitor, ScreenHeader
 
 _STREAM_TAIL = 300
 
@@ -88,7 +88,7 @@ class SessionScreen(Screen):
                 yield Static("", id="stream-tail")
                 yield Input(placeholder="Describe a task… (enter to send)",
                             id="task-input")
-        yield HardwareBar(id="session-hw")
+        yield MachineMonitor(id="session-hw", compact=True)
         yield Footer()
 
     def on_mount(self) -> None:

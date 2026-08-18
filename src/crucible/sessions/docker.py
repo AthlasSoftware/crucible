@@ -162,6 +162,12 @@ class DockerSandbox:
         live_containers.discard(self.name)
 
     @staticmethod
+    async def count_sessions() -> int:
+        """Number of crucible session containers on the host (any state)."""
+        code, out, _ = await _docker("ps", "-aq", "--filter", f"label={LABEL}")
+        return len(out.split()) if code == 0 else 0
+
+    @staticmethod
     async def purge_stale(exclude: set[str] | None = None) -> int:
         """Remove crucible session containers, optionally sparing live session ids."""
         exclude = exclude or set()

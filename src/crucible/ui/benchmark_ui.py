@@ -29,7 +29,7 @@ from textual.widgets.selection_list import Selection
 
 from crucible import hardware
 from crucible.backends import BackendError, get_backend
-from crucible.banner import BANNER
+from crucible.banner import BANNER, BANNER_WIDTH
 from crucible.benchmark import (
     BenchmarkParams,
     BenchmarkRunner,
@@ -39,7 +39,7 @@ from crucible.benchmark import (
     save,
 )
 from crucible.config import BACKEND_NAMES
-from crucible.ui.widgets import HardwareBar, ScreenHeader, format_bytes
+from crucible.ui.widgets import MachineMonitor, ScreenHeader, format_bytes
 
 _STREAM_TAIL = 200
 
@@ -112,7 +112,10 @@ class BenchmarkScreen(Screen):
                 yield Static("", id="bench-stream")
                 yield Button("■ Stop after current generation", id="bench-stop")
             with Vertical(id="bench-results", classes="hero"):
-                yield Static(BANNER, id="results-banner")
+                yield Static(
+                    "\n".join(ln.ljust(BANNER_WIDTH) for ln in BANNER.splitlines()),
+                    id="results-banner",
+                )
                 yield Static("RESULTS", id="results-title", classes="micro")
                 yield DataTable(id="results-table", cursor_type="none",
                                 zebra_stripes=True)
@@ -123,7 +126,7 @@ class BenchmarkScreen(Screen):
                 with Horizontal(id="results-actions"):
                     yield Button("▶ Run again", variant="primary", id="results-again")
                     yield Button("◀ New setup", id="results-back")
-        yield HardwareBar(id="bench-hw")
+        yield MachineMonitor(id="bench-hw", compact=True)
         yield Footer()
 
     def on_mount(self) -> None:
