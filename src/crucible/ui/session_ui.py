@@ -27,7 +27,7 @@ from textual.widgets import (
 from crucible.backends import BackendError, get_backend
 from crucible.config import APPROVAL_MODES, BACKEND_NAMES
 from crucible.report import SessionTranscript
-from crucible.sessions import AgentCallbacks, AgentLoop, AgentState, DockerSandbox
+from crucible.sessions import AgentCallbacks, AgentLoop, AgentState, DockerSandbox, protocol
 from crucible.ui.widgets import ApprovalModal, ConfirmModal, HardwareBar, ScreenHeader
 
 _STREAM_TAIL = 300
@@ -352,12 +352,23 @@ class SessionScreen(Screen):
 
     def _on_assistant_done(self, text: str) -> None:
         self._stream_clear()
-        self._chat(f"[bold #5fafd7]model ▸[/] {escape(text.strip())}")
+        visible = protocol.strip_think(text)
+        thoughts = len(text) - len(visible)
+        if thoughts > 200:
+            # Reasoning models flood the chat — fold the thinking into one line.
+            self._chat(f"[dim italic]· thought for {thoughts} chars[/]")
+        elif thoughts:
+            self._chat(f"[dim italic]{escape(text.strip())}[/]")
+        if visible:
+            self._chat(f"[bold #5fafd7]model ▸[/] {escape(visible)}")
         if self.transcript:
-            self.transcript.assistant(text.strip())
+            self.transcript.assistant(visible or text.strip())
 
     def _on_command(self, command: str) -> None:
         self._chat(f"[bold #d7af5f]$ {escape(command)}[/]")
+        term = self._widget("#term-log", RichLog)
+        if term:  # echo the command like a real prompt would
+            term.write(f"[bold #d7af5f]$ {escape(command)}[/]")
         if self.transcript:
             self.transcript.command(command)
 

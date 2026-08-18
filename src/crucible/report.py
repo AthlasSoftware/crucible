@@ -11,6 +11,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import TextIO
 
+from crucible.banner import BANNER, SUBTITLE
 from crucible.config import data_dir
 
 
@@ -29,6 +30,11 @@ def render_benchmark_md(report: dict) -> str:
         ", ".join(f"{g['name']} ({g['vram_mb']} MiB)" for g in gpus) if gpus else "none detected"
     )
     lines = [
+        "```",
+        BANNER,
+        SUBTITLE.rjust(60),
+        "```",
+        "",
         "# CRUCIBLE benchmark report",
         "",
         f"- **When:** {report.get('timestamp', '?')}",

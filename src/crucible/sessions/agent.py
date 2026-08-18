@@ -165,19 +165,24 @@ class AgentLoop:
                 return
             if turn.text:
                 self.cb.on_assistant_done(turn.text)
+            # Reasoning blocks (<think>…</think>) are display-only: they must not
+            # be parsed for commands/DONE and not fed back into history (standard
+            # for reasoning models; saves context and avoids re-running commands
+            # the model merely contemplated).
+            visible = protocol.strip_think(turn.text)
 
             tool_call = turn.tool_calls[0] if turn.tool_calls else None
             command = None
             if tool_call:
                 command = str(tool_call.arguments.get("command", "")) or None
             if command is None:
-                command = protocol.parse_fenced(turn.text)
+                command = protocol.parse_fenced(visible)
                 tool_call = None  # command came from text, answer as user message
 
-            self._append_assistant(turn, tool_call)
+            self._append_assistant(turn, tool_call, visible)
 
             if command is None:
-                done = protocol.parse_done(turn.text)
+                done = protocol.parse_done(visible)
                 if done is not None:
                     self.cb.on_done(done)
                 else:
@@ -196,6 +201,13 @@ class AgentLoop:
             self._set_state(AgentState.EXECUTING)
             result = await self.sandbox.exec(
                 command, timeout_s=self.cfg.command_timeout_s, on_output=self.cb.on_output
+            )
+            # Always show the outcome, even for silent commands — a blank
+            # terminal after `touch` reads as broken.
+            self.cb.on_output(
+                "info",
+                f"(exit {result.exit_code}"
+                + (" · timeout" if result.timed_out else "") + ")",
             )
             self._append_result(
                 tool_call,
@@ -216,8 +228,10 @@ class AgentLoop:
             return True
         return answer == "yes" and not self._stop
 
-    def _append_assistant(self, turn: _Turn, tool_call: ToolCall | None) -> None:
-        msg: dict = {"role": "assistant", "content": turn.text or None}
+    def _append_assistant(self, turn: _Turn, tool_call: ToolCall | None,
+                          visible: str | None = None) -> None:
+        content = visible if visible is not None else turn.text
+        msg: dict = {"role": "assistant", "content": content or None}
         if tool_call:
             msg["tool_calls"] = [
                 {

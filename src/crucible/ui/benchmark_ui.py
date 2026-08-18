@@ -29,6 +29,7 @@ from textual.widgets.selection_list import Selection
 
 from crucible import hardware
 from crucible.backends import BackendError, get_backend
+from crucible.banner import BANNER
 from crucible.benchmark import (
     BenchmarkParams,
     BenchmarkRunner,
@@ -100,7 +101,8 @@ class BenchmarkScreen(Screen):
                 yield Static("", id="bench-stream")
                 yield Button("■ Stop after current generation", id="bench-stop")
             with Vertical(id="bench-results", classes="hero"):
-                yield Static("RESULTS", id="results-title", classes="micro first")
+                yield Static(BANNER, id="results-banner")
+                yield Static("RESULTS", id="results-title", classes="micro")
                 yield DataTable(id="results-table", cursor_type="none",
                                 zebra_stripes=True)
                 yield Static("", id="results-errors")

@@ -422,3 +422,10 @@ ApprovalModal {
     padding: 0 2;
     margin-bottom: 1;
 }
+
+#results-banner {
+    width: 100%;
+    text-align: center;
+    color: $primary;
+    text-style: bold;
+}

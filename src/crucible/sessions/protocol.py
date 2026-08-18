@@ -27,6 +27,12 @@ RUN_SHELL_TOOL = {
 
 DONE_RE = re.compile(r"^\s*DONE:\s*(.*)$", re.MULTILINE)
 _FENCE_RE = re.compile(r"```(?:sh|bash|shell)?\s*\n(.*?)```", re.DOTALL)
+_THINK_RE = re.compile(r"<think>.*?(?:</think>|\Z)", re.DOTALL)
+
+
+def strip_think(text: str) -> str:
+    """Remove reasoning blocks (<think>…</think>, incl. unterminated ones)."""
+    return _THINK_RE.sub("", text).strip()
 
 _COMMON = """\
 You are operating inside CRUCIBLE, an LLM testing ground. You have shell access
