@@ -41,6 +41,9 @@ class GenResult:
     prompt_eval_s: float | None = None
     load_s: float | None = None
     approx: bool = False
+    # monotonic offsets (s) from request start for each received content chunk;
+    # feeds TPOT/ITL/E2EL latency statistics
+    chunk_offsets_s: list[float] = field(default_factory=list)
 
     @property
     def gen_tps(self) -> float:
@@ -90,7 +93,10 @@ class LLMBackend(Protocol):
         prompt: str,
         max_tokens: int,
         on_token: Callable[[str], None] | None = None,
+        options: dict | None = None,
     ) -> GenResult: ...
+
+    async def server_version(self) -> str | None: ...
 
     def chat_stream(
         self,

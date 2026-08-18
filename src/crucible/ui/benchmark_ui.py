@@ -77,6 +77,17 @@ class BenchmarkScreen(Screen):
                                      classes="micro")
                         yield SelectionList(id="bench-models")
                         yield Static("", id="bench-models-msg")
+                        yield Static("MODE", classes="micro")
+                        with Horizontal():
+                            yield Select(
+                                [
+                                    ("quick — 4 real prompts × N runs", "prompts"),
+                                    ("standard — pp512 / tg128 · 5 reps", "std"),
+                                    ("context sweep — pp/tg @ 0/4k/8k/16k", "depth"),
+                                ],
+                                id="bench-mode", allow_blank=False, value="prompts",
+                            )
+                        yield Static("", id="bench-mode-hint", classes="step-hint")
                         yield Static("PARAMETERS", classes="micro")
                         with Horizontal():
                             yield Label("runs per prompt")
@@ -105,6 +116,8 @@ class BenchmarkScreen(Screen):
                 yield Static("RESULTS", id="results-title", classes="micro")
                 yield DataTable(id="results-table", cursor_type="none",
                                 zebra_stripes=True)
+                yield DataTable(id="tests-table", cursor_type="none",
+                                zebra_stripes=True)
                 yield Static("", id="results-errors")
                 yield Static("", id="results-saved")
                 with Horizontal(id="results-actions"):
@@ -126,6 +139,10 @@ class BenchmarkScreen(Screen):
         self._last_setup: tuple[str, list[str], BenchmarkParams] | None = None
 
         self.query_one("#results-table", DataTable).add_columns(*RESULT_COLUMNS)
+        self.query_one("#tests-table", DataTable).add_columns(
+            "Model", "test", "t/s (mean ± σ)", "notes")
+        self.query_one("#tests-table", DataTable).display = False
+        self._refresh_mode_hint()
         cfg = self.app.config
         self.query_one("#bench-backend", Select).value = cfg.backend.active
         self.query_one("#bench-runs", Input).value = str(cfg.benchmark.runs)
@@ -176,6 +193,9 @@ class BenchmarkScreen(Screen):
         if event.select.id == "bench-backend":
             self._header().set_context(f"backend: {self._backend_name()}")
             self._load_models()
+        elif event.select.id == "bench-mode":
+            self._refresh_mode_hint()
+            self._update_cta()
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         actions = {
@@ -242,6 +262,22 @@ class BenchmarkScreen(Screen):
         if event.input.id in ("bench-runs", "bench-maxtok"):
             self._update_cta()
 
+    _MODE_HINTS = {
+        "prompts": "a quick feel for the model — real prompts, exact server metrics",
+        "std": "community-standard prefill (pp512) + decode (tg128) throughput, "
+               "mean ± stdev over 5 reps — table is postable next to llama-bench",
+        "depth": "pp/tg with 0/4k/8k/16k tokens resident in context — "
+                 "does it stay fast when the KV cache fills? (slow on big depths)",
+    }
+
+    def _mode(self) -> str:
+        value = self.query_one("#bench-mode", Select).value
+        return str(value) if value != Select.BLANK else "prompts"
+
+    def _refresh_mode_hint(self) -> None:
+        self.query_one("#bench-mode-hint", Static).update(
+            self._MODE_HINTS.get(self._mode(), ""))
+
     def _params(self) -> BenchmarkParams:
         try:
             runs = max(1, int(self.query_one("#bench-runs", Input).value or "3"))
@@ -256,6 +292,7 @@ class BenchmarkScreen(Screen):
             max_tokens=max_tokens,
             warmup=self.query_one("#bench-warmup", Switch).value,
             prompt_set=self.app.config.benchmark.prompt_set,
+            mode=self._mode(),
         )
 
     def _update_cta(self) -> None:
@@ -268,10 +305,18 @@ class BenchmarkScreen(Screen):
         params = self._params()
         prompts = get_prompt_set(params.prompt_set)
         button.disabled = False
-        button.label = (
-            f"▶  Start benchmark — {len(selected)} model(s) · "
-            f"{params.runs} runs × {len(prompts)} prompts"
-        )
+        if params.mode == "std":
+            button.label = (f"▶  Standard benchmark — {len(selected)} model(s) · "
+                            f"pp{params.pp_tokens} + tg{params.tg_tokens} × {params.reps} reps")
+        elif params.mode == "depth":
+            depths = "/".join(f"{d // 1024}k" if d else "0" for d in params.depths)
+            button.label = (f"▶  Context sweep — {len(selected)} model(s) · "
+                            f"depths {depths}")
+        else:
+            button.label = (
+                f"▶  Start benchmark — {len(selected)} model(s) · "
+                f"{params.runs} runs × {len(prompts)} prompts"
+            )
 
     def _start(self) -> None:
         models = list(self.query_one("#bench-models", SelectionList).selected)
@@ -340,14 +385,11 @@ class BenchmarkScreen(Screen):
     async def _run_benchmark(self, name: str, models: list[str],
                              params: BenchmarkParams) -> None:
         prompts = get_prompt_set(params.prompt_set)
-        per_model = params.runs * len(prompts)
-        total = len(models) * per_model
         self._set_stage("bench-run")
         stop = self.query_one("#bench-stop", Button)
         stop.label = "■ Stop after current generation"
         stop.disabled = False
         progress = self.query_one("#bench-progress", ProgressBar)
-        progress.update(total=total, progress=0)
         phase = self.query_one("#bench-phase", Static)
         self._done_models = 0
         self._stream_buf = ""
@@ -359,20 +401,22 @@ class BenchmarkScreen(Screen):
         def on_progress(ev: dict) -> None:
             if ev["phase"] == "warmup":
                 phase.update(f"[{ev['model']}] warmup (loading model)…")
+            elif ev["phase"] == "prime":
+                phase.update(f"[{ev['model']}] priming context {ev['prompt_id']}…")
             elif ev["phase"] == "model-done":
                 self._done_models += 1
             elif ev["token"] is not None:
                 self._stream(ev["token"])
             else:
-                overall = self._done_models * per_model + ev["done"]
+                overall = self._done_models * ev["total"] + ev["done"]
                 progress.update(progress=overall)
                 phase.update(
-                    f"{ev['model']} — generation {ev['done']}/{ev['total']} "
-                    f"(prompt: {ev['prompt_id']})"
+                    f"{ev['model']} — {ev['done']}/{ev['total']} "
+                    f"({ev['prompt_id']})"
                 )
                 self._header().set_context(
                     f"model {model_index(ev['model'])}/{len(models)} · "
-                    f"gen {ev['done']}/{ev['total']}"
+                    f"{ev['done']}/{ev['total']}"
                 )
 
         backend = get_backend(self.app.config, name)
@@ -380,6 +424,8 @@ class BenchmarkScreen(Screen):
             self._runner = BenchmarkRunner(
                 backend, models, prompts, params, hardware.probe(), on_progress
             )
+            progress.update(total=len(models) * self._runner.total_per_model,
+                            progress=0)
             report = await self._runner.run()
         except BackendError as e:
             self._show_failure(str(e))
@@ -412,8 +458,26 @@ class BenchmarkScreen(Screen):
             f"RESULTS [dim]— {len(results)} model(s) · {report.get('backend', '?')} · "
             f"{timestamp}[/]"
         )
+        tests_table = self.query_one("#tests-table", DataTable)
+        tests_table.clear()
+        test_rows = [(r["model"], t) for r in results for t in r.get("tests", [])]
+        tests_table.display = bool(test_rows)
+        for model, t in test_rows:
+            if t.get("skipped"):
+                tests_table.add_row(model, t["test"], "—", f"skipped: {t['skipped'][:40]}")
+                continue
+            notes = []
+            if t.get("approx"):
+                notes.append("≈ wall clock")
+            if not t.get("cache_hit", True):
+                notes.append("full prefill")
+            tests_table.add_row(
+                model, t["test"], f"{t['tps_mean']:.2f} ± {t['tps_stdev']:.2f}",
+                " · ".join(notes) or "exact",
+            )
         table = self.query_one("#results-table", DataTable)
         table.clear()
+        table.display = not test_rows
         errors = []
         for r in results:
             s = r.get("summary", {})

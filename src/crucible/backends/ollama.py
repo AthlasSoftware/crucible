@@ -45,17 +45,19 @@ class OllamaBackend(OpenAICompatBackend):
         prompt: str,
         max_tokens: int,
         on_token: Callable[[str], None] | None = None,
+        options: dict | None = None,
     ) -> GenResult:
         payload = {
             "model": model,
             "prompt": prompt,
             "stream": True,
-            "options": {"num_predict": max_tokens},
+            "options": {"num_predict": max_tokens, **(options or {})},
             "keep_alive": "5m",
         }
         start = time.monotonic()
         t_first = None
         chunks: list[str] = []
+        offsets: list[float] = []
         final: dict = {}
         try:
             async with self._client.stream(
@@ -75,8 +77,10 @@ class OllamaBackend(OpenAICompatBackend):
                         raise BackendError(f"ollama: {data['error']}")
                     token = data.get("response", "")
                     if token:
+                        now = time.monotonic()
                         if t_first is None:
-                            t_first = time.monotonic()
+                            t_first = now
+                        offsets.append(now - start)
                         chunks.append(token)
                         if on_token:
                             on_token(token)
@@ -98,7 +102,15 @@ class OllamaBackend(OpenAICompatBackend):
             prompt_eval_s=final.get("prompt_eval_duration", 0) / _NS or None,
             load_s=final.get("load_duration", 0) / _NS or None,
             approx=not final,
+            chunk_offsets_s=offsets,
         )
+
+    async def server_version(self) -> str | None:
+        try:
+            resp = await self._client.get(f"{self.base_url}/api/version")
+            return resp.json().get("version")
+        except (httpx.HTTPError, ValueError):
+            return None
 
     async def unload(self, model: str) -> None:
         """Ask Ollama to free the model's VRAM immediately."""

@@ -57,6 +57,7 @@ class OpenAICompatBackend:
         prompt: str,
         max_tokens: int,
         on_token: Callable[[str], None] | None = None,
+        options: dict | None = None,
     ) -> GenResult:
         payload = {
             "model": model,
@@ -65,6 +66,12 @@ class OpenAICompatBackend:
             "stream": True,
             "stream_options": {"include_usage": True},
         }
+        # Map the portable generation options; server-specific ones are dropped.
+        options = options or {}
+        if "seed" in options:
+            payload["seed"] = options["seed"]
+        if "temperature" in options:
+            payload["temperature"] = options["temperature"]
         try:
             return await self._generate_once(payload, on_token)
         except _StreamOptionsRejected:
@@ -77,6 +84,7 @@ class OpenAICompatBackend:
         start = time.monotonic()
         t_first = t_last = None
         chunks: list[str] = []
+        offsets: list[float] = []
         usage: dict | None = None
         try:
             async with self._client.stream(
@@ -102,6 +110,7 @@ class OpenAICompatBackend:
                         if t_first is None:
                             t_first = now
                         t_last = now
+                        offsets.append(now - start)
                         chunks.append(content)
                         if on_token:
                             on_token(content)
@@ -120,7 +129,11 @@ class OpenAICompatBackend:
             gen_s=t_last - t_first,
             total_s=end - start,
             approx=approx,
+            chunk_offsets_s=offsets,
         )
+
+    async def server_version(self) -> str | None:
+        return None
 
     async def chat_stream(
         self,

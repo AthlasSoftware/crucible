@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- Benchmark modes: *standard* (`pp512`/`tg128`, llama-bench conventions and
+  markdown table) and *context sweep* (`pp/tg @ dN` with prompt-cache
+  verification), alongside the quick prompt suite.
+- Latency distributions in every mode: TTFT/TPOT/ITL/E2EL with p50/p95/p99
+  (NIM formulary, pooled ITL); server version recorded; metric definitions
+  embedded in reports.
+- Session terminal now echoes commands and exit codes; reasoning (`<think>`)
+  blocks stripped from history and folded in chat; ASCII banner on results
+  and in saved reports; home-screen machine monitor with GPU sparklines.
+
 - Full-screen TUI is back as the default interface; the inline CLI remains via
   `crucible --inline` and as the automatic non-TTY fallback.
 - Live machine monitor (CPU · RAM · per-GPU util/VRAM/temp) on the Benchmark

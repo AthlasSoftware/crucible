@@ -19,12 +19,21 @@ covers automation and CI.
 
 ## Features
 
-- **Benchmark** — hardware panel (CPU, RAM, disk, per-GPU VRAM/utilization via
-  `nvidia-smi`) and a model benchmark suite measuring time-to-first-token,
-  prompt tokens/s and generation tokens/s. Ollama runs report *exact*
-  server-side metrics; OpenAI-compatible backends report streamed usage counts.
-  **Every run ends with a Markdown report** rendered in your terminal and saved
-  to disk (with raw JSON next to it) for later comparison.
+- **Benchmark** — three modes:
+  - *quick* — four real prompts, a fast feel for a model;
+  - *standard* — community-convention `pp512`/`tg128` throughput (mean ± stdev
+    over 5 reps, warmup excluded, per-test warmup) with a **llama-bench-style
+    markdown table** you can post next to any llama.cpp result;
+  - *context sweep* — `pp/tg @ d4096/8192/16384`: does the model stay fast when
+    the KV cache fills? Prompt-cache hits are verified; misses are honestly
+    labeled as full-prefill numbers.
+
+  Every mode also reports **latency distributions** — TTFT/TPOT/ITL/E2EL with
+  p50/p95/p99 (NVIDIA NIM formulary, ITL pooled across runs) — plus server
+  name/version and exact-vs-approximate labeling: exact server-side timings on
+  Ollama, wall-clock (marked ≈) on OpenAI-compatible backends. **Every run ends
+  with a Markdown report** rendered in your terminal and saved to disk (raw
+  JSON next to it).
 - **Sessions** — spawn a disposable Docker container and attach an LLM to it in
   an agentic loop. The model gets a `run_shell` tool (with automatic fallback to
   a fenced ```` ```sh ```` protocol for models without tool-calling); you
@@ -97,6 +106,22 @@ approval = "approve-each"    # approve-each | auto
 command_timeout_s = 60
 max_iterations = 20
 ```
+
+## Roadmap
+
+- **What one machine can really do:** concurrency sweep (aggregate vs
+  per-stream t/s — "how many agents can my rig feed"), VRAM high-water mark,
+  power draw and tokens-per-joule via the GPU monitor.
+- **Quality you can trust without a judge:** parametric IFEval-style
+  instruction following with confidence intervals, synthetic
+  needle-in-a-haystack context sweep (length × depth heatmap), determinism
+  checks, sandboxed code eval (pass@1) using CRUCIBLE's Docker isolation.
+- **Comparison:** quant-ladder mode (one model, every quant: size / speed /
+  VRAM deltas), sustained-load thermal soak, shareable one-pager.
+
+Principles: stddev/CI on every number, warmup excluded, exact vs approximate
+always labeled, methodology embedded in every report, no cross-tool
+leaderboard claims.
 
 ## Notes & caveats
 
