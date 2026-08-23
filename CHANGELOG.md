@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.0 — 2026-08-23
 
 - Determinism audit mode: same prompt × N, pinned seed + temperature 0 —
   verdict on whether the backend honors the seed.
