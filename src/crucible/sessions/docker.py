@@ -13,6 +13,9 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 LABEL = "crucible.session"
+# Harness resources carry their own label so the Session purge never reaches
+# into a running harness (and vice versa).
+HARNESS_LABEL = "crucible.harness"
 OUTPUT_CAP_BYTES = 256 * 1024
 
 # Names of containers created by THIS process and not yet destroyed — the
@@ -55,13 +58,15 @@ async def _docker(*args: str, timeout_s: float = 60.0) -> tuple[int, str, str]:
 
 class DockerSandbox:
     def __init__(self, image: str, cpus: float = 4.0, memory: str = "4g",
-                 network: bool = False):
+                 network: bool = False, label: str = LABEL,
+                 name_prefix: str = "crucible-session"):
         self.image = image
         self.cpus = cpus
         self.memory = memory
         self.network = network
+        self.label = label
         self.id = uuid.uuid4().hex[:8]
-        self.name = f"crucible-session-{self.id}"
+        self.name = f"{name_prefix}-{self.id}"
         self.alive = False
 
     async def create(self, on_output: OutputCb | None = None) -> None:
@@ -73,7 +78,7 @@ class DockerSandbox:
             await self._pull(emit)
         args = [
             "run", "-d", "--name", self.name,
-            "--label", f"{LABEL}={self.id}",
+            "--label", f"{self.label}={self.id}",
             "--cpus", str(self.cpus), "--memory", self.memory,
         ]
         if not self.network:
@@ -156,31 +161,45 @@ class DockerSandbox:
             emit("info", f"[output capped at {OUTPUT_CAP_BYTES // 1024} KiB]")
         return ExecResult(exit_code=code, stdout=stdout, stderr=stderr, truncated=truncated)
 
+    async def exec_detached(self, command: str) -> None:
+        """Fire-and-forget a command inside the container (docker exec -d).
+
+        Used to start long-lived processes — a browser daemon, say — that must
+        outlive the exec call itself.
+        """
+        if not self.alive:
+            raise SandboxError("sandbox is not running")
+        code, out, err = await _docker("exec", "-d", self.name, "sh", "-c", command, timeout_s=30)
+        if code != 0:
+            raise SandboxError(f"docker exec -d failed: {err.strip() or out.strip()}")
+
     async def destroy(self) -> None:
         await _docker("rm", "-f", self.name, timeout_s=30)
         self.alive = False
         live_containers.discard(self.name)
 
     @staticmethod
-    async def count_sessions() -> int:
-        """Number of crucible session containers on the host (any state)."""
-        code, out, _ = await _docker("ps", "-aq", "--filter", f"label={LABEL}")
+    async def count_sessions(label: str = LABEL) -> int:
+        """Number of crucible containers with this label on the host (any state)."""
+        code, out, _ = await _docker("ps", "-aq", "--filter", f"label={label}")
         return len(out.split()) if code == 0 else 0
 
     @staticmethod
-    async def purge_stale(exclude: set[str] | None = None) -> int:
-        """Remove crucible session containers, optionally sparing live session ids."""
+    async def purge_stale(exclude: set[str] | None = None, label: str = LABEL) -> int:
+        """Remove labelled crucible containers, sparing the given container names."""
         exclude = exclude or set()
         code, out, _ = await _docker(
-            "ps", "-a", "--filter", f"label={LABEL}", "--format", "{{.ID}} {{.Names}}"
+            "ps", "-a", "--filter", f"label={label}", "--format", "{{.ID}} {{.Names}}"
         )
         if code != 0:
             return 0
-        ids = [
-            line.split()[0]
-            for line in out.splitlines()
-            if line.strip() and not any(f"crucible-session-{x}" in line for x in exclude)
-        ]
+        ids = []
+        for line in out.splitlines():
+            parts = line.split(maxsplit=1)
+            # Match on the name column exactly: a short id can appear by chance
+            # inside a 64-hex container id.
+            if len(parts) == 2 and parts[1].strip() not in exclude:
+                ids.append(parts[0])
         if not ids:
             return 0
         await _docker("rm", "-f", *ids, timeout_s=60)

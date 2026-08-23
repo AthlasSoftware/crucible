@@ -39,6 +39,7 @@ from crucible.benchmark import (
     save,
 )
 from crucible.config import BACKEND_NAMES
+from crucible.ui.vllm_control import VllmControl
 from crucible.ui.widgets import MachineMonitor, ScreenHeader, format_bytes
 
 _STREAM_TAIL = 200
@@ -66,13 +67,15 @@ class BenchmarkScreen(Screen):
                 with Horizontal(id="bench-setup-cols"):
                     with Vertical(id="bench-steps"):
                         yield Static("BACKEND", classes="micro first")
-                        with Horizontal():
+                        with Horizontal(classes="field-row"):
                             yield Select(
                                 [(n, n) for n in BACKEND_NAMES],
                                 id="bench-backend", allow_blank=False,
                             )
-                            yield Button("↻ refresh", id="bench-reload",
+                            yield Button("refresh", id="bench-reload",
                                          classes="btn-compact")
+                        yield Static("", id="vllm-status", classes="server-status")
+                        yield VllmControl(id="bench-vllm")
                         yield Static("MODELS [dim]· space toggles[/]",
                                      classes="micro")
                         yield SelectionList(id="bench-models")
@@ -153,8 +156,20 @@ class BenchmarkScreen(Screen):
         self.query_one("#bench-warmup", Switch).value = cfg.benchmark.warmup
 
         self._refresh_history()
+        self._sync_vllm_visibility()
         self._load_models()
         self._update_cta()
+
+    def _sync_vllm_visibility(self) -> None:
+        """The spawn bar only makes sense for vLLM — Ollama manages its own models."""
+        show = self._backend_name() == "vllm" and self.app.config.vllm_server.enabled
+        self.query_one("#bench-vllm", VllmControl).display = show
+        self.query_one("#vllm-status", Static).display = show
+
+    def on_vllm_control_changed(self, event: VllmControl.Changed) -> None:
+        """A server was spawned or stopped — the model list just changed."""
+        event.stop()
+        self._load_models()
 
     # ---- stages -------------------------------------------------------------
 
@@ -195,6 +210,7 @@ class BenchmarkScreen(Screen):
     def on_select_changed(self, event: Select.Changed) -> None:
         if event.select.id == "bench-backend":
             self._header().set_context(f"backend: {self._backend_name()}")
+            self._sync_vllm_visibility()
             self._load_models()
         elif event.select.id == "bench-mode":
             self._refresh_mode_hint()
@@ -231,10 +247,16 @@ class BenchmarkScreen(Screen):
             models = await backend.list_models()
         except BackendError:
             self._backend_error = True
-            self._models_msg(
-                f"[$error]✗[/] can't reach {name} at {endpoint.base_url}\n"
-                "Is the server running? Fix the URL in Config (c) · ↻ refresh to retry"
-            )
+            control = self.query_one("#bench-vllm", VllmControl)
+            if control.display and not control.running:
+                # The spawn bar right below already says there is no server and
+                # what to do about it; two messages saying it is just noise.
+                self._models_msg("")
+            else:
+                self._models_msg(
+                    f"[$error]✗[/] can't reach {name} at {endpoint.base_url}\n"
+                    "Is the server running? Fix the URL in Config (c) · refresh to retry"
+                )
             self.refresh_bindings()
             self._update_cta()
             return

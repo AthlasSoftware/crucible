@@ -70,13 +70,34 @@ Rule {
     color: $primary;
 }
 
+/* 1fr, not 100%: inside a padded panel a 100%-wide child measures against the
+   panel's outer width and spills over its right border. */
 .cta {
-    width: 100%;
+    width: 1fr;
     height: 3;
     margin: 1 0 0 0;
 }
 
-#bench-hw, #session-hw {
+/* One line of form controls. Without an explicit height these rows stretch to
+   share the panel, which is what strung the setup screens out into thin air. */
+.field-row {
+    height: 3;
+    width: 1fr;
+}
+
+.field-row Label {
+    padding: 1 1 0 0;
+    color: $text-muted;
+    width: auto;
+}
+
+.server-status {
+    height: auto;
+    padding: 0 1;
+    color: $text-muted;
+}
+
+#bench-hw, #session-hw, #harness-hw {
     height: auto;
     padding: 0 3;
 }
@@ -282,6 +303,109 @@ Bar > .bar--bar {
 
 #task-input {
     margin-top: 1;
+}
+
+/* ---- Harness ---- */
+
+/* Setup is a stack of fixed-height rows with the explanation last; the spacer
+   keeps the CTA at the bottom instead of every row growing to fill. */
+#harn-setup {
+    height: 1fr;
+}
+
+#harn-vllm {
+    height: 3;
+    width: 1fr;
+}
+
+#harn-vllm Input {
+    width: 1fr;
+}
+
+#harn-vllm Button {
+    min-width: 12;
+    margin-left: 1;
+}
+
+#harn-models-msg {
+    height: auto;
+    padding: 0 1;
+}
+
+#harn-approval-hint {
+    padding: 1 0 0 2;
+    width: 1fr;
+}
+
+#harn-run {
+    padding: 0 2;
+}
+
+#harness-panes {
+    height: 1fr;
+}
+
+#harn-chat, #harn-term {
+    width: 1fr;
+    border: round $primary 20%;
+    border-title-color: $text-muted;
+    padding: 0 1;
+}
+
+#harn-chat:focus, #harn-term:focus {
+    border: round $primary 60%;
+}
+
+#harn-resources {
+    height: 1;
+    padding: 0 1;
+    margin-top: 1;
+}
+
+#harn-spawn-row {
+    height: 3;
+    padding: 0 1;
+}
+
+#harn-spawn-row Label {
+    padding: 1 1 0 0;
+    color: $text-muted;
+}
+
+#harn-kind {
+    width: 56;
+    margin-right: 2;
+}
+
+#harn-stream {
+    height: 1;
+    color: $text-muted;
+    padding: 0 2;
+}
+
+#harn-input {
+    margin-top: 1;
+}
+
+/* Takes the slack so the rows above keep their natural height. */
+#harn-explain {
+    color: $text-muted;
+    margin-top: 1;
+    height: 1fr;
+}
+
+#bench-vllm {
+    height: 3;
+    width: 1fr;
+}
+
+#bench-vllm Input {
+    width: 1fr;
+}
+
+#bench-vllm Button {
+    min-width: 12;
+    margin-left: 1;
 }
 
 /* ---- Reports ---- */

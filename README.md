@@ -40,11 +40,23 @@ covers automation and CI.
   approve each command or let it run on auto, with the model's stream and the
   sandbox terminal output inline in your scrollback. **Every session writes a
   Markdown transcript** as it happens.
+- **Harness** — just talk to a model, and hand it resources when the
+  conversation needs them. Attach a **terminal** (a shell in a disposable
+  container) or a **browser** (real headless Chromium with internet) and the
+  model gets tools for whatever is attached: `terminal_run`, `browser_goto`,
+  `browser_click`, `browser_type`, `browser_links`. Attach a second terminal and
+  it becomes `terminal2`. Resources spawn mid-chat, the model learns about them
+  from your next message, and they die with the harness. With nothing attached
+  it is an ordinary chat, and a model whose server rejects tools degrades to one
+  rather than failing. Approve-each stops on anything that acts — commands,
+  clicks, navigation — while page reads run free. **Every harness writes a
+  Markdown transcript** as it happens.
 - **Reports** — browse and read all past benchmark reports and session
   transcripts straight from the menu (or open them in `$EDITOR`).
 - **Config** — TOML config with backend selection (**Ollama**, **vLLM**, or any
-  OpenAI-compatible endpoint), model defaults, benchmark parameters, and sandbox
-  limits. Quick-set the common fields from the menu or edit with your `$EDITOR`.
+  OpenAI-compatible endpoint), model defaults, benchmark parameters, sandbox
+  limits and harness resources. Quick-set the common fields from the menu or
+  edit with your `$EDITOR`.
 - **About** — because every good tool tells you what it is.
 
 ## Quickstart
@@ -69,7 +81,7 @@ the Config menu or by editing the file. Reports land in
 `crucible` opens the full-screen TUI. `crucible --inline` runs the inline CLI
 instead — and any non-TTY invocation (pipes, CI) falls back to it
 automatically, with plain numbered prompts where empty input accepts the
-default: `printf '5\n6\n' | crucible` prints the About page and quits.
+default: `printf '6\n7\n' | crucible` prints the About page and quits.
 
 Every setting is explained where you meet it: the Config screen describes each
 field and marks which mode uses it (⚖ benchmark · ⚗ session), and the inline
@@ -105,7 +117,73 @@ network = false              # flip to true if the model should apt/pip install
 approval = "approve-each"    # approve-each | auto
 command_timeout_s = 60
 max_iterations = 20
+
+[ui]
+render_markdown = true       # false shows model replies byte-for-byte instead
+
+[vllm_server]                # a vLLM CRUCIBLE starts itself
+enabled = false              # opt-in: spawning a server is a big thing to do
+image = "vllm/vllm-openai:latest"
+port = 8100                  # never 8000 — that is where a hand-started vLLM lives
+hf_cache = "crucible-hf-cache"   # own volume; point at an existing one to share weights
+tensor_parallel_size = 1
+gpu_memory_utilization = 0.90
+max_model_len = 8192
+startup_timeout_s = 900      # weight loading is minutes, not seconds
+
+[harness]                    # ⌘ resources you hand a model mid-chat
+terminal_image = "ubuntu:24.04"
+browser_image = "mcr.microsoft.com/playwright/python:v1.55.0-noble"
+cpus = 4.0
+memory = "4g"
+terminal_network = false     # browsers always get network; terminals opt in
+approval = "approve-each"    # stops on acts, not on page reads
+command_timeout_s = 60
+max_tool_calls = 12          # tool calls chainable in one reply
 ```
+
+### Markdown
+
+Model replies are rendered as Markdown everywhere they appear — the Harness and
+Session chats, and both inline commands — so headings, lists, tables and fenced
+code read as themselves rather than as their source. Short plain answers stay on
+the speaker's line; anything with structure gets its own block. Code blocks are
+highlighted using the terminal's own colours.
+
+Inline, rendering replaces the raw token stream rather than following it, so a
+reply is never printed twice: with `render_markdown = true` you get the rendered
+message when the turn ends, with `false` you watch the tokens arrive.
+
+Set `render_markdown = false` under `[ui]` when you need to see exactly what the
+model emitted. Either way the reply is *rendered, never interpreted* — a model
+that writes `[bold]` gets those characters shown, not applied to the UI.
+
+### Switching models on vLLM
+
+vLLM fixes its model with `--model` at launch and offers no way to load another
+one, so "switch model" always means "replace the server". Set `enabled = true`
+under `[vllm_server]` and Benchmark and Harness grow a spawn bar: type a model
+id, and CRUCIBLE starts a vLLM for it on its own port, then fills the model
+picker from it. Stopping it frees the GPUs; spawning again with a different id
+is how you change model.
+
+It only ever manages servers it started. If a vLLM you run yourself — or
+anything else — is already holding VRAM, spawning refuses and names the process
+and container in the way rather than taking the memory. Weight loading takes
+minutes; pointing `hf_cache` at a cache you already have avoids re-downloading.
+
+### Notes on the browser resource
+
+The default image ships Chromium but not the Playwright Python package, so the
+first spawn pulls ~3.6 GB and then `pip install`s a client pinned to the version
+in the image tag. Chromium runs as a long-lived process inside the container
+with a CDP port bound to loopback; each tool call attaches over CDP, acts, and
+detaches. Keeping the *browser* alive rather than the script is what makes
+navigation stateful — cookies, logins and SPA state survive between calls. The
+CDP port is never published to the host: every call goes through `docker exec`.
+
+Any image works as long as Chromium sits under `/ms-playwright` and `pip` is
+available.
 
 ## Roadmap
 
@@ -128,6 +206,12 @@ leaderboard claims.
 - **Sandbox sessions need the Docker socket.** Your user must be able to run
   `docker` without sudo. If you ever containerize CRUCIBLE itself, you'd have to
   mount `/var/run/docker.sock` — understand the security implications first.
+- **A busy GPU names its occupant.** When a card is not idle the machine monitor
+  adds a line per card saying what holds the VRAM, resolving containerized PIDs
+  to container names (`21.5G VLLM::Worker_TP0 (kairos-vllm-active)`), so a model
+  that won't load explains itself. Idle cards say nothing extra and cost no
+  additional probing. Note that a card at 0% utilization holding 90% of its VRAM
+  counts as busy: a loaded-but-quiet model is exactly what gets in your way.
 - Session containers are labeled `crucible.session=...`; CRUCIBLE cleans up its
   own on exit and offers a *purge stale sessions* action for leftovers.
 - With `network = false` (the default) the model cannot install packages —

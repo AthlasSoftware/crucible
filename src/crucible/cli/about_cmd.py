@@ -25,16 +25,22 @@ severe trial that produces something new. This one is for language models.
   keys: a `run_shell` tool (with automatic fenced-protocol fallback for models
   without tool calling), one command at a time, approve each or go auto. Every
   session streams to a transcript file.
-- **⌾ Reports** — every benchmark and session leaves a Markdown report on disk;
-  browse and read them from the menu.
+- **⌘ Harness** — a plain conversation with a model until it needs hands.
+  `/attach terminal` gives it a shell, `/attach browser` gives it real headless
+  Chromium that keeps cookies and logins between calls. The model gets tools for
+  whatever is attached; with nothing attached it is just a chat.
+- **⌾ Reports** — every benchmark, session and harness leaves a Markdown report
+  on disk; browse and read them from the menu.
 - **⚙ Config** — one TOML file selects your backend (**Ollama**, **vLLM**, or
-  any OpenAI-compatible endpoint), model defaults, benchmark parameters, and
-  sandbox limits.
+  any OpenAI-compatible endpoint), model defaults, benchmark parameters,
+  sandbox limits and harness resources.
 
 ## Design notes
 
 - Pure client: binds no ports, stores nothing but local JSON/Markdown.
 - Sandboxes are labeled, resource-limited, offline by default, destroyed on exit.
+- Harness browsers are the one exception: they get network, because a browser
+  without one is a prop. Their debug port stays inside the container.
 - Runs inline in your terminal — everything stays in your scrollback.
 
 Repository: https://github.com/AthlasSoftware/crucible · MIT © ATHLAS.IO

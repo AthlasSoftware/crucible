@@ -34,7 +34,8 @@ class ScreenHeader(Horizontal):
 
 
 _SPARK = "▁▂▃▄▅▆▇█"
-_HIST_LEN = 12
+# Sized so the whole GPU line fits one 80-column row, badge included.
+_HIST_LEN = 8
 _VRAM_BAR = 10
 
 
@@ -87,20 +88,45 @@ class MachineMonitor(Static):
             history.append(gpu.util_pct)
             del history[:-_HIST_LEN]
             name = gpu.name.replace("NVIDIA GeForce ", "")
-            frac = gpu.vram_used_mb / gpu.vram_total_mb if gpu.vram_total_mb else 0
+            frac = gpu.vram_frac
             filled = round(frac * _VRAM_BAR)
             bar = "█" * filled + "[dim]░[/]" * (_VRAM_BAR - filled)
-            free = gpu.util_pct < 5 and frac < 0.10
-            status = ("[green]● free[/]" if free
+            status = ("[green]● free[/]" if gpu.idle
                       else "[#d7af5f]● busy[/]" if frac > 0.85 or gpu.util_pct > 80
                       else "[#5fafd7]● in use[/]")
+            # Kept to one line at 80 columns: the status badge wrapping onto its
+            # own line made a tidy panel look broken.
             lines.append(
-                f"[bold]GPU{i}[/] [dim]{name}[/]  "
-                f"[#5fafd7]{self._spark(history)}[/] {gpu.util_pct:3d}%  "
+                f"[bold]GPU{i}[/] [dim]{name}[/] "
+                f"[#5fafd7]{self._spark(history)}[/]{gpu.util_pct:4d}% "
                 f"[dim]vram[/] {bar} {gpu.vram_used_mb / 1024:4.1f}/"
-                f"{gpu.vram_total_mb / 1024:.0f}G  [dim]{gpu.temp_c}°C[/]  {status}"
+                f"{gpu.vram_total_mb / 1024:.0f}G [dim]{gpu.temp_c}°C[/] {status}"
             )
+            lines.extend(self._holder_lines(hw, gpu))
         self.update("\n".join(lines))
+
+    def _holder_lines(self, hw: hardware.HardwareInfo, gpu: hardware.GpuInfo) -> list[str]:
+        """Who is holding this card's VRAM — shown only while it is not idle.
+
+        An idle card says nothing extra, so the panel keeps its usual height
+        until something is actually in the way.
+        """
+        if gpu.idle:
+            return []
+        procs = hw.processes_on(gpu)
+        if not procs:
+            return ["      [dim]└ in use, no visible process (another user, or MIG)[/]"]
+        if self.compact:
+            # Under a running benchmark/session there is no room for a list.
+            top = procs[0]
+            extra = f" +{len(procs) - 1} more" if len(procs) > 1 else ""
+            return [
+                f"      [dim]└ {top.used_mb / 1024:.1f}G[/] {escape(top.label)}[dim]{extra}[/]"
+            ]
+        return [
+            f"      [dim]└ {p.used_mb / 1024:4.1f}G[/] {escape(p.label)} [dim]pid {p.pid}[/]"
+            for p in procs
+        ]
 
 
 class ConfirmModal(ModalScreen[bool]):

@@ -4,11 +4,12 @@ from __future__ import annotations
 
 from rich.markup import escape
 
+from crucible import render
 from crucible.cli.common import pick_backend, pick_models
 from crucible.cli.ui import confirm, console, rule, select, text
 from crucible.config import Config
 from crucible.report import SessionTranscript
-from crucible.sessions import AgentCallbacks, AgentLoop, DockerSandbox
+from crucible.sessions import AgentCallbacks, AgentLoop, DockerSandbox, protocol
 from crucible.sessions.docker import SandboxError
 
 
@@ -46,6 +47,10 @@ async def run(cfg: Config) -> None:
     )
     console.print(f"[muted]transcript →[/] [accent]{transcript.path}[/]")
 
+    # Streaming raw tokens and printing a rendered message would show the reply
+    # twice, so the two are alternatives: render Markdown at the end of the turn,
+    # or watch the tokens arrive.
+    render_md = cfg.ui.render_markdown
     streaming = False
 
     def end_stream() -> None:
@@ -56,6 +61,8 @@ async def run(cfg: Config) -> None:
 
     def on_token(token: str) -> None:
         nonlocal streaming
+        if render_md:
+            return
         streaming = True
         console.print(escape(token), end="", style="grey74")
 
@@ -77,7 +84,11 @@ async def run(cfg: Config) -> None:
 
     def assistant_done(text_: str) -> None:
         end_stream()
-        transcript.assistant(text_.strip())
+        visible = protocol.strip_think(text_).strip()
+        transcript.assistant(visible or text_.strip())
+        if render_md and visible:
+            console.print("[brand]model ▸[/]")
+            console.print(render.model_text(visible, markdown=True))
 
     def on_command(command: str) -> None:
         end_stream()

@@ -29,6 +29,9 @@ def _table(cfg: Config) -> Table:
     table.add_row("sessions", f"approval={cfg.sandbox.approval} · "
                               f"timeout={cfg.sandbox.command_timeout_s}s · "
                               f"max_iterations={cfg.sandbox.max_iterations}")
+    table.add_row("harness", f"terminal={cfg.harness.terminal_image} · "
+                             f"approval={cfg.harness.approval} · "
+                             f"max_tool_calls={cfg.harness.max_tool_calls}")
     return table
 
 
@@ -41,7 +44,8 @@ async def run(cfg: Config) -> None:
             [
                 ("active backend", "backend"),
                 ("default model (pick from live list)", "model"),
-                ("approval mode", "approval"),
+                ("approval mode (sessions)", "approval"),
+                ("approval mode (harness)", "harness-approval"),
                 ("sandbox network on/off", "network"),
                 ("what do the settings mean?", "help"),
                 ("open in $EDITOR", "editor"),
@@ -66,6 +70,11 @@ async def run(cfg: Config) -> None:
                                   default=cfg.sandbox.approval)
             if choice:
                 cfg.sandbox.approval = choice
+        elif action == "harness-approval":
+            choice = await select("Harness approval mode?", [(m, m) for m in APPROVAL_MODES],
+                                  default=cfg.harness.approval)
+            if choice:
+                cfg.harness.approval = choice
         elif action == "network":
             cfg.sandbox.network = not cfg.sandbox.network
         elif action == "editor":
@@ -73,8 +82,8 @@ async def run(cfg: Config) -> None:
             cfg.save()
             subprocess.run([editor, str(config_path())], check=False)
             cfg_new = load()
-            cfg.backend, cfg.benchmark, cfg.sandbox = (
-                cfg_new.backend, cfg_new.benchmark, cfg_new.sandbox)
+            cfg.backend, cfg.benchmark, cfg.sandbox, cfg.harness = (
+                cfg_new.backend, cfg_new.benchmark, cfg_new.sandbox, cfg_new.harness)
             console.print("[ok]config reloaded[/]")
             continue
         cfg.save()
@@ -104,6 +113,17 @@ def _print_help() -> None:
   [accent]approval[/]        approve-each: you confirm every command · auto: runs freely
   [accent]command_timeout_s[/]  seconds before a sandbox command is killed
   [accent]max_iterations[/]  command steps per task before the agent loop stops
+
+[bold]Harness ⌘[/] [muted]— only affects harness chats[/]
+  [accent]terminal_image[/]  docker image for a spawned terminal resource
+  [accent]browser_image[/]   image for a spawned browser — must ship Chromium under
+                  /ms-playwright; the Playwright client is pip-installed on spawn
+  [accent]cpus / memory[/]   resource limits per spawned container
+  [accent]terminal_network[/]  internet for spawned terminals — browsers always get it
+  [accent]approval[/]        approve-each: confirm every command, click and navigation
+                  (page reads are free) · auto: the model acts freely
+  [accent]max_tool_calls[/]  tool calls the model may chain in one reply before the
+                  turn returns to you
 """)
 
 

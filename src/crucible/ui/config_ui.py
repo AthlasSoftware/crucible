@@ -19,7 +19,7 @@ from textual.widgets import (
     Switch,
 )
 
-from crucible.config import APPROVAL_MODES, BACKEND_NAMES, config_path, load
+from crucible.config import APPROVAL_MODES, BACKEND_NAMES, HarnessCfg, config_path, load
 from crucible.ui.widgets import ConfirmModal, ScreenHeader
 
 
@@ -34,7 +34,7 @@ class ConfigScreen(Screen):
         yield ScreenHeader("CRUCIBLE ▸ Config", str(config_path()))
         yield Rule()
         with VerticalScroll(id="config-scroll", classes="hero"):
-            yield Static("BACKENDS [dim]· used by ⚖ benchmark and ⚗ session[/]",
+            yield Static("BACKENDS[dim]   used by benchmark and session[/]",
                      classes="micro first")
             yield from self._field(
                 "active backend",
@@ -54,7 +54,12 @@ class ConfigScreen(Screen):
             yield from self._field("openai api key",
                                    Input(id="cfg-openai-key", password=True),
                                    "bearer token for that endpoint, if needed")
-            yield Static("BENCHMARK ⚖ [dim]· only affects benchmark runs[/]",
+            yield Static("DISPLAY[dim]   how model replies are shown[/]",
+                     classes="micro")
+            yield from self._field("render markdown", Switch(id="cfg-md"),
+                                   "render model replies as Markdown — off shows "
+                                   "exactly what the model emitted")
+            yield Static("BENCHMARK[dim]   only affects benchmark runs[/]",
                      classes="micro")
             yield from self._field("runs", Input(id="cfg-runs", type="integer"),
                                    "times each of the 4 prompts is generated per "
@@ -65,7 +70,7 @@ class ConfigScreen(Screen):
             yield from self._field("warmup", Switch(id="cfg-warmup"),
                                    "one untimed generation first, so cold model "
                                    "loading doesn't skew run 1")
-            yield Static("SANDBOX ⚗ [dim]· only affects sessions[/]",
+            yield Static("SANDBOX[dim]   only affects sessions[/]",
                      classes="micro")
             yield from self._field("image", Input(id="cfg-image"),
                                    "docker image the model gets its shell in")
@@ -87,6 +92,36 @@ class ConfigScreen(Screen):
             yield from self._field("max iterations",
                                    Input(id="cfg-iters", type="integer"),
                                    "command steps per task before the loop stops")
+            yield Static("HARNESS[dim]   only affects harness chats[/]",
+                     classes="micro")
+            yield from self._field("terminal image", Input(id="cfg-harn-term-image"),
+                                   "docker image for a spawned terminal resource")
+            yield from self._field("browser image", Input(id="cfg-harn-browser-image"),
+                                   "image for a spawned browser — must ship Chromium "
+                                   "under /ms-playwright")
+            yield from self._field("cpus", Input(id="cfg-harn-cpus", type="number"),
+                                   "CPU limit per resource container")
+            yield from self._field("memory", Input(id="cfg-harn-memory"),
+                                   "memory limit per resource container, e.g. 4g")
+            yield from self._field("terminal network", Switch(id="cfg-harn-network"),
+                                   "internet for spawned terminals — browsers always "
+                                   "get network")
+            yield from self._field(
+                "approval",
+                    Select([(m, m) for m in APPROVAL_MODES], id="cfg-harn-approval",
+                       allow_blank=False),
+                "approve-each: confirm every command, click and navigation · "
+                "auto: the model acts freely")
+            yield from self._field("command timeout s",
+                                   Input(id="cfg-harn-timeout", type="integer"),
+                                   "seconds before a resource call is killed")
+            yield from self._field("max tool calls",
+                                   Input(id="cfg-harn-tools", type="integer"),
+                                   "tool calls the model may chain in one reply before "
+                                   "the turn returns to you")
+            yield from self._field("searxng url", Input(id="cfg-harn-searxng"),
+                                   "SearXNG instance for the search resource — "
+                                   "empty = autodetect a searxng container")
         with Horizontal(id="cfg-actions"):
             yield Button("✓ Save changes", variant="primary", id="cfg-save")
             yield Static("", id="cfg-dirty")
@@ -126,6 +161,7 @@ class ConfigScreen(Screen):
         self.query_one("#cfg-vllm-model", Input).value = cfg.backend.vllm.default_model
         self.query_one("#cfg-openai-url", Input).value = cfg.backend.openai.base_url
         self.query_one("#cfg-openai-key", Input).value = cfg.backend.openai.api_key
+        self.query_one("#cfg-md", Switch).value = cfg.ui.render_markdown
         self.query_one("#cfg-runs", Input).value = str(cfg.benchmark.runs)
         self.query_one("#cfg-maxtok", Input).value = str(cfg.benchmark.max_tokens)
         self.query_one("#cfg-warmup", Switch).value = cfg.benchmark.warmup
@@ -136,6 +172,15 @@ class ConfigScreen(Screen):
         self.query_one("#cfg-approval", Select).value = cfg.sandbox.approval
         self.query_one("#cfg-timeout", Input).value = str(cfg.sandbox.command_timeout_s)
         self.query_one("#cfg-iters", Input).value = str(cfg.sandbox.max_iterations)
+        self.query_one("#cfg-harn-term-image", Input).value = cfg.harness.terminal_image
+        self.query_one("#cfg-harn-browser-image", Input).value = cfg.harness.browser_image
+        self.query_one("#cfg-harn-cpus", Input).value = str(cfg.harness.cpus)
+        self.query_one("#cfg-harn-memory", Input).value = cfg.harness.memory
+        self.query_one("#cfg-harn-network", Switch).value = cfg.harness.terminal_network
+        self.query_one("#cfg-harn-approval", Select).value = cfg.harness.approval
+        self.query_one("#cfg-harn-timeout", Input).value = str(cfg.harness.command_timeout_s)
+        self.query_one("#cfg-harn-tools", Input).value = str(cfg.harness.max_tool_calls)
+        self.query_one("#cfg-harn-searxng", Input).value = cfg.harness.searxng_url
         self._update_dirty(False)
 
     # ---- dirty tracking -----------------------------------------------------
@@ -177,6 +222,7 @@ class ConfigScreen(Screen):
                 "#cfg-vllm-model", Input).value.strip()
             cfg.backend.openai.base_url = self.query_one("#cfg-openai-url", Input).value.strip()
             cfg.backend.openai.api_key = self.query_one("#cfg-openai-key", Input).value.strip()
+            cfg.ui.render_markdown = self.query_one("#cfg-md", Switch).value
             cfg.benchmark.runs = int(self.query_one("#cfg-runs", Input).value or "3")
             cfg.benchmark.max_tokens = int(self.query_one("#cfg-maxtok", Input).value or "256")
             cfg.benchmark.warmup = self.query_one("#cfg-warmup", Switch).value
@@ -188,6 +234,25 @@ class ConfigScreen(Screen):
             cfg.sandbox.command_timeout_s = int(
                 self.query_one("#cfg-timeout", Input).value or "60")
             cfg.sandbox.max_iterations = int(self.query_one("#cfg-iters", Input).value or "20")
+            harness_defaults = HarnessCfg()
+            cfg.harness.terminal_image = (
+                self.query_one("#cfg-harn-term-image", Input).value.strip()
+                or harness_defaults.terminal_image
+            )
+            cfg.harness.browser_image = (
+                self.query_one("#cfg-harn-browser-image", Input).value.strip()
+                or harness_defaults.browser_image
+            )
+            cfg.harness.cpus = float(self.query_one("#cfg-harn-cpus", Input).value or "4")
+            cfg.harness.memory = (
+                self.query_one("#cfg-harn-memory", Input).value.strip() or "4g"
+            )
+            cfg.harness.terminal_network = self.query_one("#cfg-harn-network", Switch).value
+            cfg.harness.approval = str(self.query_one("#cfg-harn-approval", Select).value)
+            cfg.harness.command_timeout_s = int(
+                self.query_one("#cfg-harn-timeout", Input).value or "60")
+            cfg.harness.max_tool_calls = int(self.query_one("#cfg-harn-tools", Input).value or "12")
+            cfg.harness.searxng_url = self.query_one("#cfg-harn-searxng", Input).value.strip()
         except ValueError as e:
             self.notify(f"Invalid value: {e}", severity="error")
             return
@@ -221,6 +286,8 @@ class ConfigScreen(Screen):
         self.app.config.backend = cfg_new.backend
         self.app.config.benchmark = cfg_new.benchmark
         self.app.config.sandbox = cfg_new.sandbox
+        self.app.config.harness = cfg_new.harness
+        self.app.config.ui = cfg_new.ui
         self._loading = True
         self._populate()
         self._loading = False

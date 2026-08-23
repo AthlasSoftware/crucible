@@ -7,13 +7,21 @@ import subprocess
 import sys
 
 from crucible import __version__
-from crucible.cli import about_cmd, benchmark_cmd, config_cmd, reports_cmd, session_cmd
+from crucible.cli import (
+    about_cmd,
+    benchmark_cmd,
+    config_cmd,
+    harness_cmd,
+    reports_cmd,
+    session_cmd,
+)
 from crucible.cli.ui import console, print_banner, select
 from crucible.config import load
 
 MENU = [
     ("⚖  Benchmark — hardware & model speed", "benchmark"),
     ("⚗  Session — LLM in a sandbox shell", "session"),
+    ("⌘  Harness — chat + spawn resources", "harness"),
     ("⌾  Reports — read past runs", "reports"),
     ("⚙  Config — backends, models, sandbox", "config"),
     ("✦  About — what is CRUCIBLE?", "about"),
@@ -23,6 +31,7 @@ MENU = [
 _COMMANDS = {
     "benchmark": benchmark_cmd.run,
     "session": session_cmd.run,
+    "harness": harness_cmd.run,
     "reports": reports_cmd.run,
     "config": config_cmd.run,
     "about": about_cmd.run,

@@ -24,6 +24,7 @@ from textual.widgets import (
     Static,
 )
 
+from crucible import render
 from crucible.backends import BackendError, get_backend
 from crucible.config import APPROVAL_MODES, BACKEND_NAMES
 from crucible.report import SessionTranscript
@@ -360,9 +361,20 @@ class SessionScreen(Screen):
         elif thoughts:
             self._chat(f"[dim italic]{escape(text.strip())}[/]")
         if visible:
-            self._chat(f"[bold #5fafd7]model ▸[/] {escape(visible)}")
+            self._write_reply(visible)
         if self.transcript:
             self.transcript.assistant(visible or text.strip())
+
+    def _write_reply(self, visible: str) -> None:
+        """Speaker line plus the message, rendered as Markdown when it earns it."""
+        markdown = self.app.config.ui.render_markdown
+        if markdown and render.looks_like_markdown(visible):
+            self._chat("[bold #5fafd7]model ▸[/]")
+            log = self._widget("#chat-log", RichLog)
+            if log:
+                log.write(render.model_text(visible, markdown=True))
+            return
+        self._chat(f"[bold #5fafd7]model ▸[/] {escape(visible)}")
 
     def _on_command(self, command: str) -> None:
         self._chat(f"[bold #d7af5f]$ {escape(command)}[/]")
@@ -494,6 +506,6 @@ class SessionScreen(Screen):
 
     @work(group="sess-purge")
     async def action_purge(self) -> None:
-        live = {self.sandbox.id} if self.sandbox and self.sandbox.alive else set()
+        live = {self.sandbox.name} if self.sandbox and self.sandbox.alive else set()
         count = await DockerSandbox.purge_stale(exclude=live)
         self.notify(f"Purged {count} stale session container(s)")

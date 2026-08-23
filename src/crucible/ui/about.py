@@ -32,18 +32,26 @@ tool calling) and works through your task one command at a time. You approve
 each command in a modal — or flip to auto and watch it go. A Markdown
 transcript is written live.
 
-**⌾ Reports.** Every benchmark and session is saved automatically; browse and
-read them without leaving the terminal.
+**⌘ Harness.** A plain conversation with a model — until it needs hands. Attach
+a terminal or a real headless browser mid-chat and the model gets tools for
+whatever is attached, keeping its browsing session, cookies and logins between
+calls. Nothing attached is simply a chat. A transcript is written live.
+
+**⌾ Reports.** Every benchmark, session and harness is saved automatically;
+browse and read them without leaving the terminal.
 
 **⚙ Config.** One TOML file selects your backend — **Ollama**, **vLLM**, or any
-OpenAI-compatible endpoint — plus model defaults, benchmark parameters, and
-sandbox limits. Every setting says what it does and which mode uses it.
+OpenAI-compatible endpoint — plus model defaults, benchmark parameters, sandbox
+limits and harness resources. Every setting says what it does and which mode
+uses it.
 
 ## Keys
 
 - **Global** — `esc` back · `ctrl+q` quit
 - **Benchmark** — `s` start / stop
 - **Session** — `ctrl+s` stop task · `ctrl+t` auto on/off · `ctrl+d` end session
+- **Harness** — `ctrl+r` attach a resource · `ctrl+s` stop · `ctrl+t` auto on/off
+  · `ctrl+d` end harness
 - **Approval modal** — `y` run · `n` deny · `a` auto from now on
 
 ## Links

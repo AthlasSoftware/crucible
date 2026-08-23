@@ -19,6 +19,7 @@ from crucible.sessions import DockerSandbox
 from crucible.ui.about import AboutScreen
 from crucible.ui.benchmark_ui import BenchmarkScreen
 from crucible.ui.config_ui import ConfigScreen
+from crucible.ui.harness_ui import HarnessScreen
 from crucible.ui.home import HomeScreen
 from crucible.ui.reports_ui import ReportsScreen
 from crucible.ui.session_ui import SessionScreen
@@ -45,6 +46,7 @@ class CrucibleApp(App):
         "home": HomeScreen,
         "benchmark": BenchmarkScreen,
         "sessions": SessionScreen,
+        "harness": HarnessScreen,
         "reports": ReportsScreen,
         "config": ConfigScreen,
         "about": AboutScreen,
