@@ -1,7 +1,7 @@
 # Contributing to CRUCIBLE
 
-Thanks for wanting to help. This is a small, tight codebase on purpose —
-please keep it that way.
+Thanks for wanting to help. This is a small, tight codebase on purpose.
+Please keep it that way.
 
 ## Setup
 
@@ -16,13 +16,13 @@ uv run ruff check src tests
 
 Python ≥ 3.12, managed with [uv](https://docs.astral.sh/uv/). Runtime
 dependencies are deliberately few (`textual`, `rich`, `questionary`, `httpx`,
-`psutil`, `tomli-w`) — a PR that adds one needs a good reason.
+`psutil`, `tomli-w`). A PR that adds one needs a good reason.
 
 ## Layout
 
 ```
 src/crucible/
-  backends/    Ollama + OpenAI-compatible clients (exact metrics vs labeled ≈)
+  backends/    Ollama and OpenAI-compatible clients
   benchmark/   engine (modes), synthetic prompts, tool-calling suite,
                inspect (X-ray lints), result store
   sessions/    Docker sandbox, agent loop, command protocol
@@ -37,20 +37,20 @@ with pure, unit-testable scoring/aggregation functions.
 
 ## Ground rules
 
-- **Honest numbers.** Every measured value ships with its uncertainty
-  (stdev, percentile, or confidence interval), warmup excluded, and exact vs
+- Honest numbers. Every measured value ships with its uncertainty
+  (stdev, percentile, or confidence interval), warmup excluded, exact vs
   approximate labeled. No cross-tool leaderboard claims.
-- **Silent failure is the enemy.** If something degrades (cache miss, seed
+- Silent failure is the enemy. If something degrades (cache miss, seed
   ignored, template footgun), say so in the report rather than averaging it
   away.
-- **Tests:** pure logic gets unit tests; screens get a mount/navigation smoke
+- Tests: pure logic gets unit tests, screens get a mount/navigation smoke
   test. The suite must pass with no backends and no Docker available.
-- **Style:** `ruff` clean; match the surrounding code; comments explain
-  constraints, not narration.
+- Style: `ruff` clean, match the surrounding code, comments explain
+  constraints rather than narrate.
 
 ## Reporting issues
 
 Include your backend and version (`ollama --version` / server image tag), the
-model id and quant, and — for benchmark disputes — the saved report JSON from
+model id and quant, and for benchmark disputes the saved report JSON from
 `~/.local/share/crucible/benchmarks/`. That file carries the provenance
 needed to reproduce.
