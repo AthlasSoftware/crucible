@@ -13,7 +13,7 @@ from textual.widgets import Footer, Markdown, OptionList, Rule, Static
 from textual.widgets.option_list import Option
 
 from crucible.report import ReportEntry, list_reports
-from crucible.ui.widgets import ScreenHeader
+from crucible.ui.widgets import ConfirmModal, ScreenHeader
 
 _ICONS = {"benchmark": "⚖", "session": "⚗"}
 
@@ -36,6 +36,7 @@ class ReportsScreen(Screen):
         ("escape", "back", "Back"),
         ("enter", "read", "Read", ),
         ("e", "open_editor", "Open in $EDITOR"),
+        ("d", "delete_report", "Delete"),
         ("r", "refresh", "Refresh"),
         ("b", "goto('benchmark')", "Benchmark", ),
         ("s", "goto('sessions')", "Session"),
@@ -113,6 +114,39 @@ class ReportsScreen(Screen):
             self.query_one("#reports-options", OptionList).focus()
         else:
             self.app.pop_screen()
+
+    def _highlighted_entry(self) -> ReportEntry | None:
+        option_list = self.query_one("#reports-options", OptionList)
+        if option_list.highlighted is None or not self._entries:
+            return None
+        try:
+            return self._entries[option_list.highlighted]
+        except IndexError:
+            return None
+
+    def action_delete_report(self) -> None:
+        entry = self._highlighted_entry()
+        if entry is None:
+            return
+
+        def confirmed(answer: bool | None) -> None:
+            if not answer:
+                return
+            # A benchmark report is a .md/.json pair — remove both.
+            for path in (entry.path, entry.path.with_suffix(".json")):
+                try:
+                    path.unlink(missing_ok=True)
+                except OSError as e:
+                    self.notify(f"Could not delete {path.name}: {e}", severity="error")
+                    return
+            self.notify(f"Deleted {entry.path.stem}")
+            self.action_refresh()
+
+        self.app.push_screen(
+            ConfirmModal(f"Delete report {entry.path.stem}? This cannot be undone.",
+                         yes_label="Delete", no_label="Keep"),
+            confirmed,
+        )
 
     def action_open_editor(self) -> None:
         option_list = self.query_one("#reports-options", OptionList)

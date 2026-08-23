@@ -24,16 +24,24 @@ _RELEASE_COLOR = "#ba3c5b"
 
 # (id, shortcut, name, description). The shortcut replaces the decorative icon
 # that used to sit here: it survives every font, and it teaches the keybinding
-# instead of just taking up space.
-MENU = [
-    ("benchmark", "b", "Benchmark", "measure model speed on this machine"),
-    ("sessions", "s", "Session", "give a model a sandboxed shell"),
-    ("harness", "h", "Harness", "chat with a model, spawn resources for it"),
-    ("inspect", "x", "Inspect", "template & context footgun x-ray"),
-    ("reports", "r", "Reports", "read past runs & transcripts"),
-    ("config", "c", "Config", "backends, models, sandbox"),
-    ("about", "a", "About", "what is CRUCIBLE?"),
-    ("quit", "q", "Quit", ""),
+# instead of just taking up space. Sections group the menu by intent — measure,
+# interact, everything else — with separator lines between them; a submenu was
+# considered and rejected (an extra keystroke for two items buys nothing).
+MENU_SECTIONS = [
+    ("TEST", [
+        ("benchmark", "b", "Benchmark", "measure model speed on this machine"),
+        ("inspect", "x", "Inspect", "template & context footgun x-ray"),
+    ]),
+    ("RUN", [
+        ("sessions", "s", "Session", "give a model a sandboxed shell"),
+        ("harness", "h", "Harness", "chat with a model, spawn resources for it"),
+    ]),
+    ("MORE", [
+        ("reports", "r", "Reports", "read past runs & transcripts"),
+        ("config", "c", "Config", "backends, models, sandbox"),
+        ("about", "a", "About", "what is CRUCIBLE?"),
+        ("quit", "q", "Quit", ""),
+    ]),
 ]
 
 _NAME_WIDTH = 12
@@ -47,6 +55,23 @@ def _option(oid: str, key: str, name: str, desc: str) -> Option:
     if desc:
         label += f"[dim]{desc}[/]"
     return Option(label, id=oid)
+
+
+def _menu_options(held: int) -> list:
+    """The sectioned menu: dim headers, separator lines between groups, and the
+    release entry pinned on top when CRUCIBLE is holding containers."""
+    options: list = []
+    if held:
+        options.append(_release_option(held))
+        options.append(None)
+    for index, (header, entries) in enumerate(MENU_SECTIONS):
+        if index or held:
+            pass  # separators come from the None between sections below
+        options.append(Option(f"[dim]{header}[/]", disabled=True))
+        options.extend(_option(*entry) for entry in entries)
+        if index < len(MENU_SECTIONS) - 1:
+            options.append(None)
+    return options
 
 
 def _release_option(count: int) -> Option:
@@ -78,7 +103,7 @@ class HomeScreen(Screen):
         machine = MachineMonitor(id="machine")
         machine.border_title = "machine"
         yield machine
-        yield OptionList(*[_option(*m) for m in MENU], id="menu")
+        yield OptionList(*_menu_options(0), id="menu")
         yield Static("", id="home-status")
         yield Static("↑↓ + enter · or press a key", id="home-hint")
         yield Footer()
@@ -133,14 +158,25 @@ class HomeScreen(Screen):
             except IndexError:
                 previous = None
         menu.clear_options()
-        options = [_option(*m) for m in MENU]
-        if self._held:
-            options.insert(0, _release_option(self._held))
+        options = _menu_options(self._held)
         menu.add_options(options)
-        for index, option in enumerate(options):
+        # Separators (None) are not options — track the option index separately
+        # or every separator shifts the highlight one row down.
+        target = None
+        opt_index = -1
+        for option in options:
+            if option is None:
+                continue
+            opt_index += 1
+            if option.disabled:
+                continue
+            if target is None:
+                target = opt_index  # first selectable, the fallback
             if option.id == previous:
-                menu.highlighted = index
+                target = opt_index
                 break
+        if target is not None:
+            menu.highlighted = target
 
     def _release_resources(self) -> None:
         def confirmed(answer: bool | None) -> None:
