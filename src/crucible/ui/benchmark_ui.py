@@ -289,12 +289,10 @@ class BenchmarkScreen(Screen):
     def on_selection_list_selected_changed(self, _event) -> None:
         self._update_cta()
 
-    def on_selection_list_option_highlighted(self, event) -> None:
-        if getattr(event.option_list, "id", "") != "bench-models":
-            return
-        option = getattr(event, "option", None)
-        if option is not None and option.value:
-            self._show_model_facts(str(option.value))
+    def on_selection_list_selection_highlighted(self, event) -> None:
+        selection = getattr(event, "selection", None)
+        if selection is not None and selection.value:
+            self._show_model_facts(str(selection.value))
 
     @work(exclusive=True, group="bench-facts")
     async def _show_model_facts(self, model: str) -> None:
