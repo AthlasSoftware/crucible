@@ -43,11 +43,17 @@ class ExecResult:
 
 
 async def _docker(*args: str, timeout_s: float = 60.0) -> tuple[int, str, str]:
-    proc = await asyncio.create_subprocess_exec(
-        "docker", *args,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "docker", *args,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+    except (FileNotFoundError, PermissionError):
+        # No Docker on this machine: behave like a failed docker call so every
+        # caller degrades along its normal error path — benchmarking needs no
+        # Docker and must work fine without it.
+        return 127, "", "docker: command not found (Docker is required for sessions/harness)"
     try:
         out, err = await asyncio.wait_for(proc.communicate(), timeout=timeout_s)
     except TimeoutError:
@@ -92,11 +98,14 @@ class DockerSandbox:
         emit("info", f"container {self.name} up ({self.image})")
 
     async def _pull(self, emit: OutputCb) -> None:
-        proc = await asyncio.create_subprocess_exec(
-            "docker", "pull", self.image,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.STDOUT,
-        )
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "docker", "pull", self.image,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.STDOUT,
+            )
+        except (FileNotFoundError, PermissionError) as e:
+            raise SandboxError("docker is not installed or not runnable") from e
         assert proc.stdout is not None
         async for raw in proc.stdout:
             line = raw.decode(errors="replace").rstrip()
