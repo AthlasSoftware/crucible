@@ -98,6 +98,8 @@ class LLMBackend(Protocol):
 
     async def server_version(self) -> str | None: ...
 
+    async def model_info(self, model: str) -> dict: ...
+
     def chat_stream(
         self,
         model: str,

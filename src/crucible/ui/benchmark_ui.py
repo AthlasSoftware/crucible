@@ -87,6 +87,8 @@ class BenchmarkScreen(Screen):
                                     ("quick — 4 real prompts × N runs", "prompts"),
                                     ("standard — pp512 / tg128 · 5 reps", "std"),
                                     ("context sweep — pp/tg @ 0/4k/8k/16k", "depth"),
+                                    ("determinism — same prompt × 5, pinned seed", "determinism"),
+                                    ("tool calling — 12-case reliability suite", "tools"),
                                 ],
                                 id="bench-mode", allow_blank=False, value="prompts",
                             )
@@ -293,6 +295,10 @@ class BenchmarkScreen(Screen):
                "mean ± stdev over 5 reps — table is postable next to llama-bench",
         "depth": "pp/tg with 0/4k/8k/16k tokens resident in context — "
                  "does it stay fast when the KV cache fills? (slow on big depths)",
+        "determinism": "same prompt 5×, seed pinned, temperature 0 — does the "
+                       "backend actually honor the seed?",
+        "tools": "12 scored cases × 3 trials: right tool, argument filling, "
+                 "parallel calls, abstention — nothing is executed",
     }
 
     def _mode(self) -> str:
@@ -337,6 +343,12 @@ class BenchmarkScreen(Screen):
             depths = "/".join(f"{d // 1024}k" if d else "0" for d in params.depths)
             button.label = (f"▶  Context sweep — {len(selected)} model(s) · "
                             f"depths {depths}")
+        elif params.mode == "determinism":
+            button.label = (f"▶  Determinism audit — {len(selected)} model(s) · "
+                            f"{params.reps} identical runs")
+        elif params.mode == "tools":
+            button.label = (f"▶  Tool-calling suite — {len(selected)} model(s) · "
+                            "12 cases × 3 trials")
         else:
             button.label = (
                 f"▶  Start benchmark — {len(selected)} model(s) · "
@@ -446,9 +458,17 @@ class BenchmarkScreen(Screen):
 
         backend = get_backend(self.app.config, name)
         try:
-            self._runner = BenchmarkRunner(
-                backend, models, prompts, params, hardware.probe(), on_progress
-            )
+            if params.mode == "tools":
+                from crucible.benchmark.toolcalls import ToolCallRunner
+
+                self._runner = ToolCallRunner(
+                    backend, models, trials=3, hardware=hardware.probe(),
+                    progress_cb=on_progress,
+                )
+            else:
+                self._runner = BenchmarkRunner(
+                    backend, models, prompts, params, hardware.probe(), on_progress
+                )
             progress.update(total=len(models) * self._runner.total_per_model,
                             progress=0)
             report = await self._runner.run()
@@ -477,6 +497,9 @@ class BenchmarkScreen(Screen):
         self.query_one("#results-again", Button).focus()
 
     def _show_results(self, report: dict, saved_path: Path | None = None) -> None:
+        if report.get("kind") == "toolcalls":
+            self._show_tool_results(report, saved_path)
+            return
         results = report.get("results", [])
         timestamp = report.get("timestamp", "")[:16].replace("T", " ")
         self.query_one("#results-title", Static).update(
@@ -490,6 +513,11 @@ class BenchmarkScreen(Screen):
         for model, t in test_rows:
             if t.get("skipped"):
                 tests_table.add_row(model, t["test"], "—", f"skipped: {t['skipped'][:40]}")
+                continue
+            if t.get("test") == "determinism":
+                mark = "✓" if t.get("deterministic") else "✗"
+                tests_table.add_row(model, "determinism", "—",
+                                    f"{mark} {t.get('verdict', '?')[:60]}")
                 continue
             notes = []
             if t.get("approx"):
@@ -528,6 +556,48 @@ class BenchmarkScreen(Screen):
             saved.update(
                 f"[$success]✓[/] report saved — JSON + Markdown in {saved_path.parent}\n"
                 "  read it any time in Reports (esc, then r)"
+            )
+            self._header().set_context(f"saved: {saved_path.name}")
+        else:
+            saved.update("")
+        self._set_stage("bench-results")
+        self.query_one("#results-again", Button).focus()
+
+    def _show_tool_results(self, report: dict, saved_path: Path | None = None) -> None:
+        results = report.get("results", [])
+        timestamp = report.get("timestamp", "")[:16].replace("T", " ")
+        self.query_one("#results-title", Static).update(
+            f"TOOL CALLING [dim]— {len(results)} model(s) · "
+            f"{report.get('backend', '?')} · {timestamp}[/]"
+        )
+        table = self.query_one("#results-table", DataTable)
+        table.clear()
+        table.display = False
+        tests_table = self.query_one("#tests-table", DataTable)
+        tests_table.clear()
+        tests_table.display = True
+        errors = []
+        for r in results:
+            if r.get("error"):
+                tests_table.add_row(r["model"], "—", "—", r["error"][:60])
+                errors.append(f"{r['model']}: {r['error']}")
+                continue
+            lo, hi = r.get("ci95", [0, 0])
+            tests_table.add_row(
+                r["model"], "TOTAL",
+                f"{r.get('passes', 0)}/{r.get('total', 0)}",
+                f"{r.get('pass_rate', 0):.0%} · CI {lo:.0%}–{hi:.0%}",
+            )
+            for c in r.get("cases", []):
+                mark = "✓" if c["passes"] == c["trials"] else ("±" if c["passes"] else "✗")
+                note = "; ".join(c.get("fail_reasons", []))[:60] or c["checks"][:60]
+                tests_table.add_row("", c["case"], f"{c['passes']}/{c['trials']} {mark}", note)
+        self.query_one("#results-errors", Static).update(
+            "[dim]" + " · ".join(errors) + "[/]" if errors else "")
+        saved = self.query_one("#results-saved", Static)
+        if saved_path is not None:
+            saved.update(
+                f"[$success]✓[/] report saved — JSON + Markdown in {saved_path.parent}"
             )
             self._header().set_context(f"saved: {saved_path.name}")
         else:

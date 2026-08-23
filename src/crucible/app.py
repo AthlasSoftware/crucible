@@ -21,6 +21,7 @@ from crucible.ui.benchmark_ui import BenchmarkScreen
 from crucible.ui.config_ui import ConfigScreen
 from crucible.ui.harness_ui import HarnessScreen
 from crucible.ui.home import HomeScreen
+from crucible.ui.inspect_ui import InspectScreen
 from crucible.ui.reports_ui import ReportsScreen
 from crucible.ui.session_ui import SessionScreen
 from crucible.ui.widgets import ConfirmModal
@@ -47,6 +48,7 @@ class CrucibleApp(App):
         "benchmark": BenchmarkScreen,
         "sessions": SessionScreen,
         "harness": HarnessScreen,
+        "inspect": InspectScreen,
         "reports": ReportsScreen,
         "config": ConfigScreen,
         "about": AboutScreen,

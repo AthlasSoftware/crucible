@@ -26,7 +26,12 @@ covers automation and CI.
     markdown table** you can post next to any llama.cpp result;
   - *context sweep* — `pp/tg @ d4096/8192/16384`: does the model stay fast when
     the KV cache fills? Prompt-cache hits are verified; misses are honestly
-    labeled as full-prefill numbers.
+    labeled as full-prefill numbers;
+  - *determinism* — same prompt × 5 with pinned seed and temperature 0: does
+    the backend actually honor the seed? (Ollama has documented seed bugs);
+  - *tool calling* — a bundled 12-case reliability suite (BFCL-style): right
+    tool, typed argument filling, parallel calls, and abstention when no tool
+    fits — pass rates with 95% Wilson intervals, nothing ever executed.
 
   Every mode also reports **latency distributions** — TTFT/TPOT/ITL/E2EL with
   p50/p95/p99 (NVIDIA NIM formulary, ITL pooled across runs) — plus server
@@ -51,6 +56,11 @@ covers automation and CI.
   rather than failing. Approve-each stops on anything that acts — commands,
   clicks, navigation — while page reads run free. **Every harness writes a
   Markdown transcript** as it happens.
+- **Inspect** — a model X-ray for the silent footguns: missing `num_ctx`
+  (Ollama truncates long prompts without a word), templates lacking tool or
+  system sections, embedded double-BOS, template hash + overhead, and a live
+  native-tool-acceptance probe. Reports include full provenance (quant, size,
+  family, template sha) so results are reproducible and comparable.
 - **Reports** — browse and read all past benchmark reports and session
   transcripts straight from the menu (or open them in `$EDITOR`).
 - **Config** — TOML config with backend selection (**Ollama**, **vLLM**, or any

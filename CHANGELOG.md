@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- Determinism audit mode: same prompt × N, pinned seed + temperature 0 —
+  verdict on whether the backend honors the seed.
+- Tool-calling reliability suite: 12 scored cases × N trials (selection,
+  typed argument filling, parallel calls, abstention), Wilson 95% CIs.
+- Inspect screen: template & context X-ray — num_ctx footgun, tool/system
+  template sections, double-BOS, template hash/overhead, live tool probe.
+- Reports now carry model provenance (quant · size · family · ctx ·
+  template sha) from /api/show.
+- Harness: SearXNG search resource (captcha-free web search, autodetects a
+  local searxng container).
+
 - **Model replies render as Markdown**, in the TUI and inline alike. Everything
   CRUCIBLE writes itself — reports, transcripts, About — was already Markdown;
   the models' own output was the one place still shown raw, which is exactly

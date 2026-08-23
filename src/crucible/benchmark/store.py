@@ -30,7 +30,8 @@ def save(report: dict) -> Path:
     directory = benchmarks_dir()
     directory.mkdir(parents=True, exist_ok=True)
     ts = report["timestamp"].replace(":", "-").replace("+", "_")
-    path = directory / f"{ts}_{report['backend']}.json"
+    kind = report.get("kind", "bench")
+    path = directory / f"{ts}_{kind}_{report['backend']}.json"
     path.write_text(json.dumps(report, indent=2), encoding="utf-8")
     return save_benchmark_md(report, path)
 

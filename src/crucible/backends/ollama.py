@@ -112,6 +112,33 @@ class OllamaBackend(OpenAICompatBackend):
         except (httpx.HTTPError, ValueError):
             return None
 
+    async def model_info(self, model: str) -> dict:
+        """Provenance from /api/show: family/quant/size, template hash, max context."""
+        import hashlib
+
+        try:
+            resp = await self._client.post(f"{self.base_url}/api/show", json={"model": model})
+            resp.raise_for_status()
+            data = resp.json()
+        except (httpx.HTTPError, ValueError):
+            return {}
+        details = data.get("details") or {}
+        template = data.get("template") or ""
+        arch_info = data.get("model_info") or {}
+        context_length = next(
+            (v for k, v in arch_info.items() if k.endswith(".context_length")), None
+        )
+        return {
+            "family": details.get("family"),
+            "quant": details.get("quantization_level"),
+            "param_size": details.get("parameter_size"),
+            "template": template,
+            "template_sha256": hashlib.sha256(template.encode()).hexdigest()[:12]
+            if template else None,
+            "parameters": data.get("parameters") or "",
+            "model_context_length": context_length,
+        }
+
     async def unload(self, model: str) -> None:
         """Ask Ollama to free the model's VRAM immediately."""
         try:

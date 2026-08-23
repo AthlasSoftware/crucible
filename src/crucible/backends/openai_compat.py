@@ -135,6 +135,9 @@ class OpenAICompatBackend:
     async def server_version(self) -> str | None:
         return None
 
+    async def model_info(self, model: str) -> dict:
+        return {}
+
     async def chat_stream(
         self,
         model: str,

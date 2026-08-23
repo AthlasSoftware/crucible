@@ -27,7 +27,7 @@ from crucible.hardware import HardwareInfo
 
 SCHEMA_VERSION = 2
 
-MODES = ("prompts", "std", "depth")
+MODES = ("prompts", "std", "depth", "determinism")
 
 # progress_cb receives dicts like:
 #   {"model": str, "phase": "warmup"|"prime"|"run"|"model-done",
@@ -182,6 +182,8 @@ class BenchmarkRunner:
             return p.reps * 2
         if p.mode == "depth":
             return len(p.depths) * (p.reps * 2 + 1)  # prime + pp + tg per depth
+        if p.mode == "determinism":
+            return p.reps
         return p.runs * len(self.prompts)
 
     def _progress(self, model: str, phase: str, done: int, prompt_id: str = "",
@@ -193,11 +195,19 @@ class BenchmarkRunner:
     async def run(self) -> dict:
         server_version = await self.backend.server_version()
         results: list[ModelResult] = []
+        provenance: dict[str, dict] = {}
         for model in self.models:
             if self.cancelled:
                 break
+            info = await self.backend.model_info(model)
+            if info:
+                provenance[model] = {
+                    k: v for k, v in info.items()
+                    if k in ("family", "quant", "param_size", "template_sha256",
+                             "model_context_length") and v
+                }
             results.append(await self._run_model(model))
-        return self._report(results, server_version)
+        return self._report(results, server_version, provenance)
 
     async def _run_model(self, model: str) -> ModelResult:
         load_s: float | None = None
@@ -213,6 +223,8 @@ class BenchmarkRunner:
                 tests, rows = await self._run_std(model)
             elif self.params.mode == "depth":
                 tests, rows = await self._run_depth(model)
+            elif self.params.mode == "determinism":
+                tests, rows = await self._run_determinism(model)
             else:
                 rows = await self._run_prompts(model)
         except BackendError as e:
@@ -364,7 +376,51 @@ class BenchmarkRunner:
                 continue
         return tests, all_rows
 
-    def _report(self, results: list[ModelResult], server_version: str | None) -> dict:
+    _DET_PROMPT = "List the first five prime numbers, comma separated, nothing else."
+
+    async def _run_determinism(self, model: str) -> tuple[list[dict], list[dict]]:
+        """Same prompt × reps with pinned seed and temperature 0: does the
+        backend actually honor the seed? (Documented Ollama bug class.)"""
+        p = self.params
+        rows: list[dict] = []
+        texts: list[str] = []
+        for rep in range(p.reps):
+            if self.cancelled:
+                break
+            r = await self.backend.generate_stream(
+                model, self._DET_PROMPT, 64,
+                options={"seed": p.seed, "temperature": 0},
+            )
+            texts.append(r.text)
+            rows.append(run_row("determinism", r))
+            self._progress(model, "run", rep + 1, "determinism")
+        distinct = len(set(texts))
+        deterministic = distinct == 1 and len(texts) > 1
+        first_divergence = None
+        if distinct > 1:
+            base = texts[0]
+            for other in texts[1:]:
+                if other != base:
+                    idx = next((i for i, (a, b) in enumerate(zip(base, other, strict=False))
+                                if a != b), min(len(base), len(other)))
+                    first_divergence = idx if first_divergence is None else min(
+                        first_divergence, idx)
+        tests = [{
+            "test": "determinism",
+            "reps": len(texts),
+            "distinct_outputs": distinct,
+            "deterministic": deterministic,
+            "first_divergence_char": first_divergence,
+            "verdict": (
+                f"{len(texts)}/{len(texts)} identical — seed honored" if deterministic
+                else f"{distinct} distinct outputs over {len(texts)} runs "
+                     "despite pinned seed + temperature 0"
+            ),
+        }]
+        return tests, rows
+
+    def _report(self, results: list[ModelResult], server_version: str | None,
+                provenance: dict[str, dict] | None = None) -> dict:
         hw = self.hardware
         return {
             "schema": SCHEMA_VERSION,
@@ -385,6 +441,8 @@ class BenchmarkRunner:
             "results": [
                 {
                     "model": r.model,
+                    **({"provenance": (provenance or {}).get(r.model)}
+                       if (provenance or {}).get(r.model) else {}),
                     "load_s": round(r.load_s, 3) if r.load_s is not None else None,
                     "runs": r.runs,
                     "summary": r.summary,
