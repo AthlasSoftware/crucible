@@ -80,6 +80,7 @@ class BenchmarkScreen(Screen):
                                      classes="micro")
                         yield SelectionList(id="bench-models")
                         yield Static("", id="bench-models-msg")
+                        yield Static("", id="bench-model-facts", classes="step-hint")
                         yield Static("MODE", classes="micro")
                         with Horizontal():
                             yield Select(
@@ -145,6 +146,8 @@ class BenchmarkScreen(Screen):
         self._stream_ts = 0.0
         self._history_entries = []
         self._last_setup: tuple[str, list[str], BenchmarkParams] | None = None
+        self._model_meta: dict = {}
+        self._facts_cache: dict[str, dict] = {}
 
         self.query_one("#results-table", DataTable).add_columns(*RESULT_COLUMNS)
         self.query_one("#tests-table", DataTable).add_columns(
@@ -271,6 +274,7 @@ class BenchmarkScreen(Screen):
             self._update_cta()
             return
         self._models_msg("")
+        self._model_meta = {m.id: m for m in models}
         default = endpoint.default_model
         for m in models:
             label = m.id if not m.size_bytes else f"{m.id}  ({format_bytes(m.size_bytes)})"
@@ -284,6 +288,67 @@ class BenchmarkScreen(Screen):
 
     def on_selection_list_selected_changed(self, _event) -> None:
         self._update_cta()
+
+    def on_selection_list_option_highlighted(self, event) -> None:
+        if getattr(event.option_list, "id", "") != "bench-models":
+            return
+        option = getattr(event, "option", None)
+        if option is not None and option.value:
+            self._show_model_facts(str(option.value))
+
+    @work(exclusive=True, group="bench-facts")
+    async def _show_model_facts(self, model: str) -> None:
+        """MODEL FACTS for the highlighted model: trained context, configured
+        num_ctx, KV cost, and the practical context ceiling on this rig's
+        currently-free VRAM — so you know what a depth sweep can reach."""
+        import asyncio as _asyncio
+
+        from crucible.benchmark.inspect import context_budget
+
+        facts = self.query_one("#bench-model-facts", Static)
+        info = self._facts_cache.get(model)
+        if info is None:
+            backend = get_backend(self.app.config, self._backend_name())
+            try:
+                info = await backend.model_info(model)
+            except BackendError:
+                info = {}
+            finally:
+                await backend.close()
+            self._facts_cache[model] = info
+        if not info:
+            facts.update("[dim]no metadata exposed by this backend[/]")
+            return
+        gpus = await _asyncio.to_thread(hardware.probe_gpus)
+        free_vram = sum((g.vram_total_mb - g.vram_used_mb) for g in gpus) * 1024 * 1024
+        meta = self._model_meta.get(model)
+        weights = meta.size_bytes if meta else None
+        budget = context_budget(info, weights, free_vram or None)
+
+        bits = []
+        trained = info.get("model_context_length")
+        if trained:
+            bits.append(f"trained ctx [bold]{trained:,}[/]")
+        if "num_ctx" in (info.get("parameters") or ""):
+            line = next(ln.strip() for ln in info["parameters"].splitlines()
+                        if "num_ctx" in ln)
+            bits.append(f"configured {line.split()[-1]}")
+        else:
+            bits.append("[#d7af5f]num_ctx not set → Ollama default[/]")
+        if budget:
+            bits.append(f"kv ≈ {budget['kv_mb_per_1k']:g} MB/1k tok")
+            fit = budget.get("practical_max_ctx")
+            if fit is not None:
+                if not budget.get("weights_fit", True):
+                    bits.append("[#d7af5f]weights alone exceed free VRAM → CPU spill[/]")
+                elif budget.get("vram_limited"):
+                    bits.append(f"[bold]fits ≈ {fit:,} ctx[/] on "
+                                f"{free_vram / 1e9:.1f}G free VRAM")
+                else:
+                    bits.append(f"[green]full ctx fits[/] on "
+                                f"{free_vram / 1e9:.1f}G free VRAM")
+        facts.update(f"[bold]{model}[/] — " + " · ".join(bits)
+                     + "  [dim](≈ estimate: f16 KV, weights ×1.1, 90% of free)[/]")
 
     def on_input_changed(self, event: Input.Changed) -> None:
         if event.input.id in ("bench-runs", "bench-maxtok"):

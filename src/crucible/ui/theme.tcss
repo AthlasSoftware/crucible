@@ -576,3 +576,8 @@ ApprovalModal {
 #insp-findings {
     height: auto;
 }
+
+#bench-model-facts {
+    height: auto;
+    padding: 0 1;
+}

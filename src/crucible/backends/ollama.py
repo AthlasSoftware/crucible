@@ -125,10 +125,18 @@ class OllamaBackend(OpenAICompatBackend):
         details = data.get("details") or {}
         template = data.get("template") or ""
         arch_info = data.get("model_info") or {}
-        context_length = next(
-            (v for k, v in arch_info.items() if k.endswith(".context_length")), None
-        )
+
+        def arch(suffix: str):
+            return next((v for k, v in arch_info.items() if k.endswith(suffix)), None)
+
+        context_length = arch(".context_length")
         return {
+            "n_layers": arch(".block_count"),
+            "n_heads": arch(".attention.head_count"),
+            "n_kv_heads": arch(".attention.head_count_kv"),
+            "embedding_length": arch(".embedding_length"),
+            "head_dim": arch(".attention.key_length"),  # explicit on some archs
+
             "family": details.get("family"),
             "quant": details.get("quantization_level"),
             "param_size": details.get("parameter_size"),

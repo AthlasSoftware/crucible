@@ -148,6 +148,48 @@ async def inspect_model(backend: LLMBackend, model: str) -> dict:
     }
 
 
+def kv_bytes_per_token(info: dict, kv_dtype_bytes: int = 2) -> int | None:
+    """KV-cache cost per token: 2 (K+V) × layers × kv_heads × head_dim × dtype.
+
+    head_dim comes from attention.key_length when the arch exposes it, else
+    embedding_length / head_count. f16 KV assumed (Ollama's default; flash-attn
+    KV quantization would halve or quarter this).
+    """
+    layers = info.get("n_layers")
+    kv_heads = info.get("n_kv_heads")
+    head_dim = info.get("head_dim")
+    if head_dim is None and info.get("embedding_length") and info.get("n_heads"):
+        head_dim = info["embedding_length"] // info["n_heads"]
+    if not (layers and kv_heads and head_dim):
+        return None
+    return 2 * int(layers) * int(kv_heads) * int(head_dim) * kv_dtype_bytes
+
+
+def context_budget(info: dict, weights_bytes: int | None,
+                   free_vram_bytes: int | None) -> dict | None:
+    """Practical context ceiling on the current rig — an honest estimate.
+
+    Assumptions (stated in the UI): quantized weights occupy ≈ disk size × 1.1
+    in VRAM, 90% of currently-free VRAM is usable, KV cache is f16. Capped at
+    the model's trained context length.
+    """
+    per_token = kv_bytes_per_token(info)
+    trained = info.get("model_context_length")
+    if per_token is None:
+        return None
+    result: dict = {
+        "kv_mb_per_1k": round(per_token * 1024 / 1e6, 1),
+        "trained_max_ctx": trained,
+    }
+    if weights_bytes and free_vram_bytes:
+        budget = free_vram_bytes * 0.9 - weights_bytes * 1.1
+        fit = max(0, int(budget // per_token))
+        result["practical_max_ctx"] = min(fit, trained) if trained else fit
+        result["vram_limited"] = bool(trained and fit < trained)
+        result["weights_fit"] = budget > 0
+    return result
+
+
 _MARKS = {"ok": "✓", "warn": "⚠", "bad": "✗", "info": "·"}
 
 
