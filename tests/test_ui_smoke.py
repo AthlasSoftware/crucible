@@ -1,5 +1,7 @@
 """Headless TUI smoke tests via Textual's pilot — catches compose/mount wiring bugs."""
 
+from unittest.mock import AsyncMock
+
 import pytest
 
 from crucible.app import CrucibleApp
@@ -7,10 +9,17 @@ from crucible.app import CrucibleApp
 
 @pytest.fixture
 def app(tmp_path, monkeypatch):
+    from crucible.servers import VllmServer
+    from crucible.sessions import DockerSandbox
+
     # Keep the test hermetic: config/data under tmp, no live backend calls needed
     # for mounting (model loads fail gracefully into status text).
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
     monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
+    # A test must never discover or purge real labelled containers on the host.
+    monkeypatch.setattr(VllmServer, "count", AsyncMock(return_value=0))
+    monkeypatch.setattr(VllmServer, "purge", AsyncMock(return_value=0))
+    monkeypatch.setattr(DockerSandbox, "count_sessions", AsyncMock(return_value=0))
     return CrucibleApp()
 
 

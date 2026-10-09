@@ -23,6 +23,7 @@ from crucible.ui.harness_ui import HarnessScreen
 from crucible.ui.home import HomeScreen
 from crucible.ui.inspect_ui import InspectScreen
 from crucible.ui.reports_ui import ReportsScreen
+from crucible.ui.resources_ui import ResourcesScreen
 from crucible.ui.session_ui import SessionScreen
 from crucible.ui.widgets import ConfirmModal
 
@@ -50,6 +51,7 @@ class CrucibleApp(App):
         "harness": HarnessScreen,
         "inspect": InspectScreen,
         "reports": ReportsScreen,
+        "resources": ResourcesScreen,
         "config": ConfigScreen,
         "about": AboutScreen,
     }

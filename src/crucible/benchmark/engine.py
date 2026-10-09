@@ -13,6 +13,9 @@ mode from per-chunk timestamps; ITL is pooled across runs before percentiling.
 
 from __future__ import annotations
 
+import asyncio
+import hashlib
+import platform
 import statistics
 import uuid
 from collections.abc import Callable
@@ -20,12 +23,14 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from itertools import pairwise
 
+from crucible import __version__
 from crucible.backends.base import BackendError, GenResult, LLMBackend
 from crucible.benchmark.prompts import Prompt
 from crucible.benchmark.synthetic import synthetic_text
 from crucible.hardware import HardwareInfo
+from crucible.resources import container_snapshot
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 MODES = ("prompts", "std", "depth", "determinism")
 
@@ -38,10 +43,10 @@ METRIC_DEFS = {
     "tpot": "(e2el - ttft) / (gen_tokens - 1)",
     "itl": "inter-chunk gap, first token excluded; a chunk may exceed one token "
            "on openai-compatible backends",
-    "pp": "prompt tokens / server prompt_eval_duration (ollama, exact) or "
+    "pp": "uncached prompt tokens / server prompt_eval_duration (ollama; cached count subtracted when reported) or "
           "prompt tokens / ttft (openai-compat, approx)",
-    "tg": "generated tokens / server eval_duration (ollama, exact) or "
-          "wall clock first→last chunk (openai-compat)",
+    "tg": "generated tokens / server eval_duration (ollama) or "
+          "(generated tokens - 1) / wall clock first→last content chunk (API approximation)",
     "source": "NVIDIA NIM benchmarking metric formulary; llama-bench pp/tg conventions",
 }
 
@@ -58,6 +63,9 @@ class BenchmarkParams:
     reps: int = 5
     seed: int = 0
     depths: list[int] = field(default_factory=lambda: [0, 4096, 8192, 16384])
+    ttft_target_s: float = 1.0
+    gen_tps_target: float = 20.0
+    chunk_gap_target_ms: float = 100.0
 
 
 @dataclass
@@ -72,8 +80,9 @@ class ModelResult:
 
 def _stats(values: list[float]) -> dict:
     if not values:
-        return {"mean": 0.0, "min": 0.0, "max": 0.0, "stdev": 0.0}
+        return {"n": 0, "mean": 0.0, "min": 0.0, "max": 0.0, "stdev": 0.0}
     return {
+        "n": len(values),
         "mean": statistics.fmean(values),
         "min": min(values),
         "max": max(values),
@@ -104,7 +113,7 @@ def _itl_gaps(r: GenResult) -> list[float]:
 
 def run_row(prompt_id: str, r: GenResult) -> dict:
     tpot_s = ((r.total_s - r.ttft_s) / (r.gen_tokens - 1)
-              if r.gen_tokens > 1 else None)
+              if r.gen_tokens > 1 and r.token_count_source == "server" and not r.reasoning_observed else None)
     return {
         "prompt_id": prompt_id,
         "ttft_s": round(r.ttft_s, 4),
@@ -116,6 +125,13 @@ def run_row(prompt_id: str, r: GenResult) -> dict:
         "tpot_ms": round(tpot_s * 1000, 2) if tpot_s is not None else None,
         "itl_ms": [round(g * 1000, 2) for g in _itl_gaps(r)],
         "approx": r.approx,
+        "timing_source": r.timing_source,
+        "prompt_timing_source": "server" if r.prompt_eval_s is not None else "client",
+        "token_count_source": r.token_count_source,
+        "finish_reason": r.finish_reason,
+        "chunk_count": len(r.chunk_offsets_s),
+        "cached_prompt_tokens": r.cached_prompt_tokens,
+        "reasoning_observed": r.reasoning_observed,
     }
 
 
@@ -128,29 +144,42 @@ def summarize(rows: list[dict]) -> dict:
     e2els = [r["total_s"] for r in rows]
     return {
         "ttft_s": {**_stats(ttfts), **_percentiles(ttfts)},
-        "gen_tps": _stats([r["gen_tps"] for r in rows]),
-        "prompt_tps": _stats([r["prompt_tps"] for r in rows]),
+        "gen_tps": _stats([r["gen_tps"] for r in rows
+                           if r.get("token_count_source") != "chunks" and r["gen_tps"] > 0
+                           and not r.get("reasoning_observed")]),
+        "prompt_tps": _stats([r["prompt_tps"] for r in rows
+                              if r.get("token_count_source") != "chunks" and r["prompt_tokens"] > 0]),
         "tpot_ms": {**_stats(tpots), **_percentiles(tpots)},
         "itl_ms": {**_stats(pooled_itl), **_percentiles(pooled_itl)},
         "e2el_s": {**_stats(e2els), **_percentiles(e2els)},
         "total_gen_tokens": sum(r["gen_tokens"] for r in rows),
+        "total_gen_tokens_known": all(r.get("token_count_source") != "chunks" for r in rows),
+        "completed_runs": len(rows),
         "approx": any(r["approx"] for r in rows),
     }
 
 
 def aggregate_test(name: str, depth: int, rows: list[dict],
-                   which: str, cache_hit: bool = True) -> dict:
+                   which: str, cache_hit: bool | None = True) -> dict:
     """One llama-bench-style test aggregate (mean ± stdev over reps)."""
-    tps = [r["prompt_tps"] if which == "pp" else r["gen_tps"] for r in rows]
+    metric = "prompt_tps" if which == "pp" else "gen_tps"
+    tps = [r[metric] for r in rows if r.get("token_count_source") != "chunks" and r[metric] > 0
+           and (which == "pp" or not r.get("reasoning_observed"))]
     return {
         "test": name,
         "depth": depth,
         "reps": len(rows),
+        "measured_reps": len(tps),
         "tps_mean": round(statistics.fmean(tps), 2) if tps else 0.0,
         "tps_stdev": round(statistics.stdev(tps), 2) if len(tps) > 1 else 0.0,
         "approx": any(r["approx"] for r in rows),
         "cache_hit": cache_hit,
         "samples": rows,
+        "latency": summarize(rows),
+        "prompt_tokens_range": [min(r["prompt_tokens"] for r in rows),
+                                max(r["prompt_tokens"] for r in rows)] if rows else [],
+        "gen_tokens_range": [min(r["gen_tokens"] for r in rows),
+                             max(r["gen_tokens"] for r in rows)] if rows else [],
     }
 
 
@@ -181,7 +210,7 @@ class BenchmarkRunner:
         if p.mode == "std":
             return p.reps * 2
         if p.mode == "depth":
-            return len(p.depths) * (p.reps * 2 + 1)  # prime + pp + tg per depth
+            return sum(p.reps * 2 + (1 if depth else 0) for depth in p.depths)
         if p.mode == "determinism":
             return p.reps
         return p.runs * len(self.prompts)
@@ -193,6 +222,7 @@ class BenchmarkRunner:
                           "token": token})
 
     async def run(self) -> dict:
+        self._environment = {"before": await self._snapshot(self.hardware)}
         server_version = await self.backend.server_version()
         results: list[ModelResult] = []
         provenance: dict[str, dict] = {}
@@ -207,16 +237,33 @@ class BenchmarkRunner:
                              "model_context_length") and v
                 }
             results.append(await self._run_model(model))
+        from crucible import hardware
+
+        self._environment["after"] = await self._snapshot(await asyncio.to_thread(hardware.probe))
         return self._report(results, server_version, provenance)
+
+    async def _snapshot(self, hw: HardwareInfo) -> dict:
+        return {"timestamp": datetime.now().astimezone().isoformat(timespec="seconds"),
+                "cpu_load_pct": hw.load_pct, "ram_used_gb": round(hw.ram_used_gb, 1),
+                "gpus": [asdict(g) for g in hw.gpus],
+                "gpu_processes": [asdict(p) for p in hw.gpu_processes],
+                "docker": await container_snapshot()}
+
+    def _row(self, prompt_id: str, result: GenResult) -> dict:
+        row = run_row(prompt_id, result)
+        self._partial_rows.append(row)
+        return row
 
     async def _run_model(self, model: str) -> ModelResult:
         load_s: float | None = None
         rows: list[dict] = []
         tests: list[dict] = []
+        self._partial_rows: list[dict] = []
         try:
             if self.params.warmup:
                 self._progress(model, "warmup", 0)
-                warm = await self.backend.generate_stream(model, "Say OK.", 8)
+                warm = await self.backend.generate_stream(model, "Say OK.",
+                                                         max(8, self.params.max_tokens))
                 load_s = warm.load_s
 
             if self.params.mode == "std":
@@ -228,16 +275,17 @@ class BenchmarkRunner:
             else:
                 rows = await self._run_prompts(model)
         except BackendError as e:
-            return ModelResult(model=model, load_s=load_s, runs=rows,
-                               summary=summarize(rows), tests=tests, error=str(e))
+            self._progress(model, "model-done", len(self._partial_rows))
+            return ModelResult(model=model, load_s=load_s, runs=self._partial_rows,
+                               summary=summarize(self._partial_rows), tests=tests, error=str(e))
         finally:
             unload = getattr(self.backend, "unload", None)
             if unload is not None:
                 await unload(model)
 
         self._progress(model, "model-done", len(rows))
-        return ModelResult(model=model, load_s=load_s, runs=rows,
-                           summary=summarize(rows), tests=tests)
+        return ModelResult(model=model, load_s=load_s, runs=self._partial_rows,
+                           summary=summarize(self._partial_rows), tests=tests)
 
     # ---- prompts mode (the quick suite) -------------------------------------
 
@@ -253,7 +301,7 @@ class BenchmarkRunner:
                     on_token=lambda tok, m=model, d=done, p=prompt.id:
                         self._progress(m, "run", d, p, tok),
                 )
-                rows.append(run_row(prompt.id, r))
+                rows.append(self._row(prompt.id, r))
                 done += 1
                 self._progress(model, "run", done, prompt.id)
         return rows
@@ -264,18 +312,25 @@ class BenchmarkRunner:
     _TG_PROMPT = ("Write a long, meandering story about a blacksmith's forge. "
                   "Do not stop until told to.")
 
-    async def _run_std(self, model: str) -> tuple[list[dict], list[dict]]:
+    async def _run_std(self, model: str, progress_offset: int = 0,
+                       suffix: str = "") -> tuple[list[dict], list[dict]]:
         p = self.params
-        pp_name, tg_name = f"pp{p.pp_tokens}", f"tg{p.tg_tokens}"
+        pp_name, tg_name = f"pp{p.pp_tokens}{suffix}", f"tg{p.tg_tokens}{suffix}"
         pp_rows: list[dict] = []
         tg_rows: list[dict] = []
-        done = 0
+        done = progress_offset
         # Untimed pp warmup: the first prefill after a load/idle runs cold and
         # would wreck the stdev (llama-bench warms up per test the same way).
-        await self.backend.generate_stream(
-            model, synthetic_text(p.pp_tokens, p.seed + 9999), 1,
-            options=dict(self._DETERMINISTIC),
-        )
+        if p.warmup and not self.cancelled:
+            await self.backend.generate_stream(
+                model, synthetic_text(p.pp_tokens, p.seed + 9999), 1,
+                options=dict(self._DETERMINISTIC),
+            )
+            if not self.cancelled:
+                await self.backend.generate_stream(
+                    model, self._TG_PROMPT, p.tg_tokens,
+                    options={"seed": p.seed, **self._DETERMINISTIC},
+                )
         for rep in range(p.reps):
             if self.cancelled:
                 break
@@ -284,7 +339,7 @@ class BenchmarkRunner:
                 model, synthetic_text(p.pp_tokens, p.seed + rep), 1,
                 options={"seed": p.seed, **self._DETERMINISTIC},
             )
-            pp_rows.append(run_row(pp_name, r))
+            pp_rows.append(self._row(pp_name, r))
             done += 1
             self._progress(model, "run", done, pp_name)
             if self.cancelled:
@@ -294,7 +349,7 @@ class BenchmarkRunner:
                 model, self._TG_PROMPT, p.tg_tokens,
                 options={"seed": p.seed + rep, **self._DETERMINISTIC},
             )
-            tg_rows.append(run_row(tg_name, r))
+            tg_rows.append(self._row(tg_name, r))
             done += 1
             self._progress(model, "run", done, tg_name)
         tests = []
@@ -315,12 +370,10 @@ class BenchmarkRunner:
             if self.cancelled:
                 break
             if depth == 0:
-                std_tests, rows = await self._run_std(model)
-                for t in std_tests:
-                    t["test"] += " @ d0"
+                std_tests, rows = await self._run_std(model, done, " @ d0")
                 tests.extend(std_tests)
                 all_rows.extend(rows)
-                done += p.reps * 2 + 1
+                done += len(rows)
                 continue
 
             num_ctx = depth + p.pp_tokens + p.tg_tokens + 256
@@ -328,7 +381,7 @@ class BenchmarkRunner:
             try:
                 # Prime the server's prompt cache with the context.
                 self._progress(model, "prime", done, f"d{depth}")
-                await self.backend.generate_stream(
+                prime = await self.backend.generate_stream(
                     model, ctx, 1, options={"num_ctx": num_ctx, **self._DETERMINISTIC},
                 )
                 done += 1
@@ -337,7 +390,7 @@ class BenchmarkRunner:
                 tg_name = f"tg{p.tg_tokens} @ d{depth}"
                 pp_rows: list[dict] = []
                 tg_rows: list[dict] = []
-                cache_hit = True
+                cache_hit: bool | None = True
                 for rep in range(p.reps):
                     if self.cancelled:
                         break
@@ -346,11 +399,14 @@ class BenchmarkRunner:
                         model, ctx + "\n" + tail, 1,
                         options={"num_ctx": num_ctx, **self._DETERMINISTIC},
                     )
-                    # If the server re-evaluated the whole context the prompt
-                    # cache missed — the row then measures full prefill.
-                    if r.prompt_tokens > 1.5 * p.pp_tokens:
+                    # Input token counts alone cannot prove KV-cache reuse.
+                    # Prefer an explicit cached-token count; older servers may
+                    # expose none, which remains unknown rather than "hit".
+                    if r.cached_prompt_tokens is None:
+                        cache_hit = None if cache_hit is not False else False
+                    elif r.cached_prompt_tokens < max(1, prime.prompt_tokens - 8):
                         cache_hit = False
-                    pp_rows.append(run_row(pp_name, r))
+                    pp_rows.append(self._row(pp_name, r))
                     done += 1
                     self._progress(model, "run", done, pp_name)
                     if self.cancelled:
@@ -360,7 +416,7 @@ class BenchmarkRunner:
                         options={"num_ctx": num_ctx, "seed": p.seed + rep,
                                  **self._DETERMINISTIC},
                     )
-                    tg_rows.append(run_row(tg_name, r))
+                    tg_rows.append(self._row(tg_name, r))
                     done += 1
                     self._progress(model, "run", done, tg_name)
                 if pp_rows:
@@ -392,7 +448,7 @@ class BenchmarkRunner:
                 options={"seed": p.seed, "temperature": 0},
             )
             texts.append(r.text)
-            rows.append(run_row("determinism", r))
+            rows.append(self._row("determinism", r))
             self._progress(model, "run", rep + 1, "determinism")
         distinct = len(set(texts))
         deterministic = distinct == 1 and len(texts) > 1
@@ -412,7 +468,8 @@ class BenchmarkRunner:
             "deterministic": deterministic,
             "first_divergence_char": first_divergence,
             "verdict": (
-                f"{len(texts)}/{len(texts)} identical — seed honored" if deterministic
+                f"{len(texts)}/{len(texts)} identical — observed repeatability; seed support unproven" if deterministic
+                else "insufficient samples — need at least two outputs" if len(texts) < 2
                 else f"{distinct} distinct outputs over {len(texts)} runs "
                      "despite pinned seed + temperature 0"
             ),
@@ -424,6 +481,24 @@ class BenchmarkRunner:
         hw = self.hardware
         return {
             "schema": SCHEMA_VERSION,
+            "environment": getattr(self, "_environment", {}),
+            "status": "cancelled" if self.cancelled else (
+                "failed" if results and all(r.error for r in results) else
+                "partial" if any(r.error or any(t.get("skipped") for t in r.tests) for r in results)
+                else "complete" if results else "failed"),
+            "requested_models": self.models,
+            "client": {"name": "crucible", "version": __version__, "python": platform.python_version()},
+            "workload": {
+                "synthetic_version": 1,
+                "prompt_sha256": {p.id: hashlib.sha256(p.text.encode()).hexdigest()
+                                  for p in self.prompts},
+                "synthetic_lengths": "word targets, not tokenizer-exact token counts",
+                "concurrency": 1,
+                "generation_options": "backend defaults" if self.params.mode == "prompts"
+                                      else "temperature=0; seeds recorded in params",
+                "decode_prompt_sha256": hashlib.sha256(self._TG_PROMPT.encode()).hexdigest(),
+                "repeatability_prompt_sha256": hashlib.sha256(self._DET_PROMPT.encode()).hexdigest(),
+            },
             "id": str(uuid.uuid4()),
             "timestamp": datetime.now().astimezone().isoformat(timespec="seconds"),
             "backend": self.backend.name,
@@ -435,7 +510,15 @@ class BenchmarkRunner:
                 "cores": hw.cores_logical,
                 "ram_gb": round(hw.ram_total_gb, 1),
                 "os": hw.os_name,
-                "gpus": [{"name": g.name, "vram_mb": g.vram_total_mb} for g in hw.gpus],
+                "scope": "benchmark client host; may differ from inference server",
+                "cpu_load_pct_before": hw.load_pct,
+                "ram_used_gb_before": round(hw.ram_used_gb, 1),
+                "gpus": [{"name": g.name, "vram_mb": g.vram_total_mb,
+                          "driver": g.driver, "uuid": g.uuid,
+                          "used_mb_before": g.vram_used_mb,
+                          "util_pct_before": g.util_pct, "temp_c_before": g.temp_c}
+                         for g in hw.gpus],
+                "gpu_processes_before": [asdict(p) for p in hw.gpu_processes],
             },
             "params": asdict(self.params),
             "results": [

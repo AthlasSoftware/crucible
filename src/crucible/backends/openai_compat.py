@@ -86,6 +86,9 @@ class OpenAICompatBackend:
         chunks: list[str] = []
         offsets: list[float] = []
         usage: dict | None = None
+        finish_reason = None
+        stream_done = False
+        reasoning_observed = False
         try:
             async with self._client.stream(
                 "POST",
@@ -99,12 +102,16 @@ class OpenAICompatBackend:
                         raise _StreamOptionsRejected
                     raise BackendError(f"{self.name}: HTTP {resp.status_code}: {body[:300]}")
                 async for data in _sse_events(resp):
+                    stream_done = stream_done or data.get("_stream_done", False)
                     choices = data.get("choices") or []
                     if data.get("usage"):
                         usage = data["usage"]
                     if not choices:
                         continue
-                    content = (choices[0].get("delta") or {}).get("content")
+                    finish_reason = choices[0].get("finish_reason") or finish_reason
+                    delta = choices[0].get("delta") or {}
+                    reasoning_observed = reasoning_observed or bool(delta.get("reasoning_content") or delta.get("reasoning"))
+                    content = delta.get("content")
                     if content:
                         now = time.monotonic()
                         if t_first is None:
@@ -118,18 +125,29 @@ class OpenAICompatBackend:
             raise BackendError(f"{self.name}: streaming failed: {e}") from e
 
         end = time.monotonic()
+        if not stream_done and finish_reason is None:
+            raise BackendError(f"{self.name}: stream ended without a completion marker; result incomplete")
+        if not chunks:
+            raise BackendError(f"{self.name}: no visible output; TTFT unavailable. A reasoning model may need a higher token cap.")
         t_first = t_first if t_first is not None else end
         t_last = t_last if t_last is not None else end
-        approx = usage is None
+        counts_known = bool(usage and "prompt_tokens" in usage and "completion_tokens" in usage)
+        reasoning_observed = reasoning_observed or bool(
+            ((usage or {}).get("completion_tokens_details") or {}).get("reasoning_tokens"))
         return GenResult(
             text="".join(chunks),
             ttft_s=t_first - start,
             prompt_tokens=(usage or {}).get("prompt_tokens", 0),
             gen_tokens=(usage or {}).get("completion_tokens", len(chunks)),
             gen_s=t_last - t_first,
-            total_s=end - start,
-            approx=approx,
+            total_s=t_last - start,
+            approx=True,
             chunk_offsets_s=offsets,
+            timing_source="client",
+            token_count_source="server" if counts_known else "chunks",
+            finish_reason=finish_reason,
+            cached_prompt_tokens=((usage or {}).get("prompt_tokens_details") or {}).get("cached_tokens"),
+            reasoning_observed=reasoning_observed,
         )
 
     async def server_version(self) -> str | None:
@@ -213,6 +231,7 @@ async def _sse_events(resp: httpx.Response) -> AsyncIterator[dict]:
             continue
         data = line[len("data:") :].strip()
         if data == "[DONE]":
+            yield {"_stream_done": True}
             return
         try:
             yield json.loads(data)

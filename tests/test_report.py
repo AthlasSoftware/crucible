@@ -59,6 +59,15 @@ def test_save_benchmark_md(tmp_path: Path):
     assert "test:8b" in md_path.read_text()
 
 
+def test_same_second_reports_do_not_overwrite(data_home):
+    from crucible.benchmark.store import save
+
+    first = save({**REPORT, "id": "first-id"})
+    second = save({**REPORT, "id": "second-id"})
+    assert first != second
+    assert first.exists() and second.exists()
+
+
 @pytest.fixture
 def data_home(tmp_path, monkeypatch):
     monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))

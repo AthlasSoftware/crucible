@@ -31,7 +31,11 @@ def save(report: dict) -> Path:
     directory.mkdir(parents=True, exist_ok=True)
     ts = report["timestamp"].replace(":", "-").replace("+", "_")
     kind = report.get("kind", "bench")
-    path = directory / f"{ts}_{kind}_{report['backend']}.json"
+    # Runs can finish in the same second; never overwrite earlier evidence.
+    from uuid import uuid4
+
+    suffix = str(report.get("id") or uuid4())[:8]
+    path = directory / f"{ts}_{kind}_{report['backend']}_{suffix}.json"
     path.write_text(json.dumps(report, indent=2), encoding="utf-8")
     return save_benchmark_md(report, path)
 

@@ -28,8 +28,9 @@ class GenResult:
     """One benchmark generation with timing. Durations in seconds.
 
     prompt_eval_s and load_s are exact on Ollama's native API and None on
-    OpenAI-compatible backends; `approx` marks results where token counts came
-    from chunk counting rather than server-reported usage.
+    OpenAI-compatible backends. `approx` marks fallback/client throughput;
+    token_count_source independently records whether usage is server reported.
+    TTFT, E2EL and chunk offsets always use client timing.
     """
 
     text: str
@@ -44,17 +45,28 @@ class GenResult:
     # monotonic offsets (s) from request start for each received content chunk;
     # feeds TPOT/ITL/E2EL latency statistics
     chunk_offsets_s: list[float] = field(default_factory=list)
+    # Token counts and timing have independent provenance. Client timings are
+    # still approximate even when the server returns exact usage counts.
+    timing_source: str = "server"
+    token_count_source: str = "server"
+    finish_reason: str | None = None
+    cached_prompt_tokens: int | None = None
+    reasoning_observed: bool = False
 
     @property
     def gen_tps(self) -> float:
-        return self.gen_tokens / self.gen_s if self.gen_s > 0 else 0.0
+        tokens = self.gen_tokens if self.timing_source == "server" else max(0, self.gen_tokens - 1)
+        return tokens / self.gen_s if self.gen_s > 0 else 0.0
 
     @property
     def prompt_tps(self) -> float:
         # Exact when the server reported prompt eval time, else approximated
         # from wall-clock time to first token.
         denom = self.prompt_eval_s if self.prompt_eval_s else self.ttft_s
-        return self.prompt_tokens / denom if denom and denom > 0 else 0.0
+        tokens = self.prompt_tokens
+        if self.prompt_eval_s is not None and self.cached_prompt_tokens is not None:
+            tokens = max(0, tokens - self.cached_prompt_tokens)
+        return tokens / denom if denom and denom > 0 else 0.0
 
 
 @dataclass

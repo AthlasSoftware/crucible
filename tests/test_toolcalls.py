@@ -48,6 +48,19 @@ def test_extra_call_fails_single():
     assert not ok and "one call" in reason
 
 
+def test_parallel_rejects_unrequested_call():
+    calls = [ToolCall("1", "get_weather", {"city": "Oslo"}),
+             ToolCall("2", "get_weather", {"city": "Madrid"}),
+             ToolCall("3", "web_search", {"query": "unrequested"})]
+    assert score_case(_case("parallel-two"), calls)[0] is False
+
+
+def test_numeric_types_do_not_accept_strings_or_booleans():
+    for value in ("847", True):
+        calls = [ToolCall("1", "add_numbers", {"a": value, "b": 256})]
+        assert score_case(_case("args-numbers"), calls)[0] is False
+
+
 def test_wilson_interval():
     lo, hi = wilson_interval(30, 36)
     assert 0.65 < lo < 0.75 and 0.9 < hi < 0.95

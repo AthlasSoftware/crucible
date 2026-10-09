@@ -1,5 +1,28 @@
 # Changelog
 
+## Unreleased
+
+- Explain first-text wait, decode speed and streaming pauses against editable
+  example chat goals in the TUI and shared Markdown reports. Keep sample-size
+  limits and incomplete-run status visible alongside the result.
+- Resources screen: inspect container CPU/RAM and attributed local GPU memory;
+  explicitly pause/resume or stop/start one selected container. Revalidate
+  identity/state, protect identified inference endpoints, and prevent stopping
+  `--rm` containers. Actions default to Cancel.
+- Schema 3 reports: client version, workload hashes, timing/count provenance,
+  actual token ranges, and before/after client-host/container snapshots.
+- Correct API timing labels, first-to-last-content decode/E2EL, cached-token
+  prefill accounting and partial-run retention. Withhold visible-text decode
+  grades when reasoning output or missing usage makes them unreliable.
+- Fix tool-trial denominators after cancellation/failure, reject extra parallel
+  calls and invalid numeric types, and distinguish repeatability from proof of
+  seed support. Same-second reports no longer overwrite distinct runs.
+- Make standard repetitions/output limits effective, respect warmup controls,
+  improve narrow-terminal setup/results navigation, and keep result interpretation
+  visible when opening a report.
+- Document remaining benchmark-standardization priorities in
+  `docs/benchmark-readiness.md`.
+
 ## 0.2.0 — 2026-08-23
 
 - Determinism audit mode: same prompt × N, pinned seed + temperature 0 —

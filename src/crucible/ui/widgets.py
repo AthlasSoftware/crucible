@@ -154,6 +154,9 @@ class ConfirmModal(ModalScreen[bool]):
     def on_button_pressed(self, event: Button.Pressed) -> None:
         self.dismiss(event.button.id == "confirm-yes")
 
+    def on_mount(self) -> None:
+        self.query_one("#confirm-no", Button).focus()
+
     def action_answer(self, answer: bool) -> None:
         self.dismiss(answer)
 

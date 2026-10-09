@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import asyncio
+import math
 import time
+from dataclasses import fields
 from pathlib import Path
 
 from textual import work
 from textual.app import ComposeResult
-from textual.containers import Horizontal, Vertical
+from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import Screen
 from textual.widgets import (
     Button,
@@ -29,7 +32,6 @@ from textual.widgets.selection_list import Selection
 
 from crucible import hardware
 from crucible.backends import BackendError, get_backend
-from crucible.banner import BANNER, BANNER_WIDTH
 from crucible.benchmark import (
     BenchmarkParams,
     BenchmarkRunner,
@@ -38,6 +40,7 @@ from crucible.benchmark import (
     load_report,
     save,
 )
+from crucible.benchmark.assessment import result_overview
 from crucible.config import BACKEND_NAMES
 from crucible.ui.vllm_control import VllmControl
 from crucible.ui.widgets import MachineMonitor, ScreenHeader, format_bytes
@@ -45,7 +48,7 @@ from crucible.ui.widgets import MachineMonitor, ScreenHeader, format_bytes
 _STREAM_TAIL = 200
 
 RESULT_COLUMNS = (
-    "Model", "load s", "gen t/s", "min", "max", "ttft s", "prompt t/s", "tokens", "✓"
+    "Model", "load s", "decode tok/s ↑", "min", "max", "first text s ↓", "prefill tok/s ↑", "output tokens", "timing"
 )
 
 
@@ -54,9 +57,10 @@ class BenchmarkScreen(Screen):
     _backend_error = False
 
     BINDINGS = [
-        ("escape", "app.pop_screen", "Back"),
+        ("escape", "back", "Back"),
         ("s", "start_stop", "start · stop"),
         ("c", "goto_config", "Config"),
+        ("e", "resources", "Resources"),
     ]
 
     def compose(self) -> ComposeResult:
@@ -65,7 +69,7 @@ class BenchmarkScreen(Screen):
         with ContentSwitcher(initial="bench-setup", id="bench-stages"):
             with Vertical(id="bench-setup", classes="hero"):
                 with Horizontal(id="bench-setup-cols"):
-                    with Vertical(id="bench-steps"):
+                    with VerticalScroll(id="bench-steps"):
                         yield Static("BACKEND", classes="micro first")
                         with Horizontal(classes="field-row"):
                             yield Select(
@@ -82,34 +86,44 @@ class BenchmarkScreen(Screen):
                         yield Static("", id="bench-models-msg")
                         yield Static("", id="bench-model-facts", classes="step-hint")
                         yield Static("MODE", classes="micro")
-                        with Horizontal():
+                        with Horizontal(classes="field-row"):
                             yield Select(
                                 [
                                     ("quick — 4 real prompts × N runs", "prompts"),
-                                    ("standard — pp512 / tg128 · 5 reps", "std"),
+                                    ("standard — prefill + decode throughput", "std"),
                                     ("context sweep — pp/tg @ 0/4k/8k/16k", "depth"),
-                                    ("determinism — same prompt × 5, pinned seed", "determinism"),
+                                    ("determinism — repeated prompt, pinned seed", "determinism"),
                                     ("tool calling — 12-case reliability suite", "tools"),
                                 ],
                                 id="bench-mode", allow_blank=False, value="prompts",
                             )
                         yield Static("", id="bench-mode-hint", classes="step-hint")
                         yield Static("PARAMETERS", classes="micro")
-                        with Horizontal():
-                            yield Label("runs per prompt")
+                        with Horizontal(classes="field-row"):
+                            yield Label("runs per prompt", id="bench-runs-label")
                             yield Input(id="bench-runs", type="integer")
                             yield Label("max tokens")
                             yield Input(id="bench-maxtok", type="integer")
-                        with Horizontal():
+                        with Horizontal(classes="field-row"):
                             yield Label("warmup first")
                             yield Switch(id="bench-warmup")
                             yield Static("(untimed load run)", classes="step-hint")
+                        yield Static("CHAT TARGETS · examples, editable; no quality grade", classes="micro")
+                        with Horizontal(id="bench-targets", classes="field-row"):
+                            yield Label("first text ≤ s")
+                            yield Input("1.0", id="bench-ttft-target", type="number")
+                            yield Label("decode ≥ tok/s")
+                            yield Input("20", id="bench-speed-target", type="number")
+                        with Horizontal(classes="field-row"):
+                            yield Label("streaming pause ≤ ms")
+                            yield Input("100", id="bench-gap-target", type="number")
                     with Vertical(id="bench-history-panel"):
                         yield Static("PREVIOUS RUNS", classes="micro first")
                         yield OptionList(id="bench-history")
                         yield Static("enter ▸ view results", classes="step-hint")
-                yield Button("Start benchmark", variant="primary", id="bench-start",
-                             classes="cta")
+                with Horizontal(id="bench-start-actions"):
+                    yield Button("Start benchmark", variant="primary", id="bench-start", classes="cta")
+                    yield Button("Resources", id="bench-resources")
             with Vertical(id="bench-run", classes="hero"):
                 yield Static("PROGRESS", classes="micro first")
                 yield Static("", id="bench-phase")
@@ -117,12 +131,9 @@ class BenchmarkScreen(Screen):
                 yield Static("LIVE OUTPUT", classes="micro")
                 yield Static("", id="bench-stream")
                 yield Button("■ Stop after current generation", id="bench-stop")
-            with Vertical(id="bench-results", classes="hero"):
-                yield Static(
-                    "\n".join(ln.ljust(BANNER_WIDTH) for ln in BANNER.splitlines()),
-                    id="results-banner",
-                )
+            with VerticalScroll(id="bench-results", classes="hero"):
                 yield Static("RESULTS", id="results-title", classes="micro")
+                yield Static("", id="results-overview", markup=False)
                 yield DataTable(id="results-table", cursor_type="none",
                                 zebra_stripes=True)
                 yield DataTable(id="tests-table", cursor_type="none",
@@ -161,6 +172,7 @@ class BenchmarkScreen(Screen):
         self.query_one("#bench-warmup", Switch).value = cfg.benchmark.warmup
 
         self._refresh_history()
+        self._fit_layout()
         self._sync_vllm_visibility()
         self._load_models()
         self._update_cta()
@@ -191,11 +203,29 @@ class BenchmarkScreen(Screen):
         self.refresh_bindings()
 
     def check_action(self, action: str, parameters) -> bool | None:
+        if action == "resources":
+            return self._stage == "bench-setup"
         if action == "start_stop":
             return self._stage in ("bench-setup", "bench-run")
         if action == "goto_config":
             return self._backend_error
         return True
+
+    def action_back(self) -> None:
+        if self._stage == "bench-run":
+            self.notify("Stop the benchmark first; completed samples will be saved.", severity="warning")
+        else:
+            self.app.pop_screen()
+
+    def action_resources(self) -> None:
+        if self._stage == "bench-setup":
+            self.app.push_screen("resources")
+
+    def on_resize(self) -> None:
+        self._fit_layout()
+
+    def _fit_layout(self) -> None:
+        self.query_one("#bench-history-panel").display = self.size.width >= 110
 
     def action_start_stop(self) -> None:
         if self._stage == "bench-setup":
@@ -214,10 +244,16 @@ class BenchmarkScreen(Screen):
 
     def on_select_changed(self, event: Select.Changed) -> None:
         if event.select.id == "bench-backend":
+            self._facts_cache.clear()
+            self.query_one("#bench-model-facts", Static).update("")
             self._header().set_context(f"backend: {self._backend_name()}")
             self._sync_vllm_visibility()
             self._load_models()
         elif event.select.id == "bench-mode":
+            self.query_one("#bench-runs", Input).value = str(
+                self.app.config.benchmark.runs if self._mode() in ("prompts", "tools") else 5)
+            self.query_one("#bench-maxtok", Input).value = str(
+                128 if self._mode() in ("std", "depth") else self.app.config.benchmark.max_tokens)
             self._refresh_mode_hint()
             self._update_cta()
 
@@ -225,6 +261,7 @@ class BenchmarkScreen(Screen):
         actions = {
             "bench-reload": self._load_models,
             "bench-start": self._start,
+            "bench-resources": self.action_resources,
             "bench-stop": self._stop,
             "results-again": self._run_again,
             "results-back": lambda: self._set_stage("bench-setup"),
@@ -304,7 +341,9 @@ class BenchmarkScreen(Screen):
         from crucible.benchmark.inspect import context_budget
 
         facts = self.query_one("#bench-model-facts", Static)
-        info = self._facts_cache.get(model)
+        backend_name = self._backend_name()
+        cache_key = (backend_name, model)
+        info = self._facts_cache.get(cache_key)
         if info is None:
             backend = get_backend(self.app.config, self._backend_name())
             try:
@@ -313,7 +352,7 @@ class BenchmarkScreen(Screen):
                 info = {}
             finally:
                 await backend.close()
-            self._facts_cache[model] = info
+            self._facts_cache[cache_key] = info
         if not info:
             facts.update("[dim]no metadata exposed by this backend[/]")
             return
@@ -331,7 +370,7 @@ class BenchmarkScreen(Screen):
             line = next(ln.strip() for ln in info["parameters"].splitlines()
                         if "num_ctx" in ln)
             bits.append(f"configured {line.split()[-1]}")
-        else:
+        elif backend_name == "ollama":
             bits.append("[#d7af5f]num_ctx not set → Ollama default[/]")
         if budget:
             bits.append(f"kv ≈ {budget['kv_mb_per_1k']:g} MB/1k tok")
@@ -349,18 +388,16 @@ class BenchmarkScreen(Screen):
                      + "  [dim](≈ estimate: f16 KV, weights ×1.1, 90% of free)[/]")
 
     def on_input_changed(self, event: Input.Changed) -> None:
-        if event.input.id in ("bench-runs", "bench-maxtok"):
+        if event.input.id in ("bench-runs", "bench-maxtok", "bench-ttft-target", "bench-speed-target", "bench-gap-target"):
             self._update_cta()
 
     _MODE_HINTS = {
-        "prompts": "a quick feel for the model — real prompts, exact server metrics",
-        "std": "community-standard prefill (pp512) + decode (tg128) throughput, "
-               "mean ± stdev over 5 reps — table is postable next to llama-bench",
+        "prompts": "interactive experience: first-text wait and decode speed against your targets. No answer-quality scoring.",
+        "std": "prefill + decode, mean ± stdev. pp512 is a word target; actual token counts are reported. API timings differ from llama-bench.",
         "depth": "pp/tg with 0/4k/8k/16k tokens resident in context — "
                  "does it stay fast when the KV cache fills? (slow on big depths)",
-        "determinism": "same prompt 5×, seed pinned, temperature 0 — does the "
-                       "backend actually honor the seed?",
-        "tools": "12 scored cases × 3 trials: right tool, argument filling, "
+        "determinism": "same prompt, seed pinned, temperature 0 — observes repeatability; cannot prove seed support.",
+        "tools": "12 scored cases × your trials: right tool, argument filling, "
                  "parallel calls, abstention — nothing is executed",
     }
 
@@ -371,22 +408,32 @@ class BenchmarkScreen(Screen):
     def _refresh_mode_hint(self) -> None:
         self.query_one("#bench-mode-hint", Static).update(
             self._MODE_HINTS.get(self._mode(), ""))
+        self.query_one("#bench-runs-label", Label).update(
+            "runs per prompt" if self._mode() == "prompts" else "trials per case" if self._mode() == "tools" else "repetitions")
+        self.query_one("#bench-maxtok", Input).disabled = self._mode() in ("tools", "determinism")
+        self.query_one("#bench-warmup", Switch).disabled = self._mode() == "tools"
 
     def _params(self) -> BenchmarkParams:
-        try:
-            runs = max(1, int(self.query_one("#bench-runs", Input).value or "3"))
-        except ValueError:
-            runs = 3
-        try:
-            max_tokens = max(16, int(self.query_one("#bench-maxtok", Input).value or "256"))
-        except ValueError:
-            max_tokens = 256
+        runs = int(self.query_one("#bench-runs", Input).value)
+        max_tokens = int(self.query_one("#bench-maxtok", Input).value)
+        ttft_target = float(self.query_one("#bench-ttft-target", Input).value)
+        speed_target = float(self.query_one("#bench-speed-target", Input).value)
+        gap_target = float(self.query_one("#bench-gap-target", Input).value)
+        if runs < 1 or max_tokens < 1 or any(not math.isfinite(v) or v <= 0 for v in (ttft_target, speed_target, gap_target)):
+            raise ValueError("Repetitions, token limit and targets must be positive numbers")
+        if self._mode() == "determinism" and runs < 2:
+            raise ValueError("Repeatability needs at least two repetitions")
         return BenchmarkParams(
             runs=runs,
             max_tokens=max_tokens,
             warmup=self.query_one("#bench-warmup", Switch).value,
             prompt_set=self.app.config.benchmark.prompt_set,
             mode=self._mode(),
+            reps=runs,
+            tg_tokens=max_tokens,
+            ttft_target_s=ttft_target,
+            gen_tps_target=speed_target,
+            chunk_gap_target_ms=gap_target,
         )
 
     def _update_cta(self) -> None:
@@ -396,7 +443,12 @@ class BenchmarkScreen(Screen):
             button.disabled = True
             button.label = "Select at least one model (step 2)"
             return
-        params = self._params()
+        try:
+            params = self._params()
+        except ValueError:
+            button.disabled = True
+            button.label = "Enter positive repetitions, token limit and targets"
+            return
         prompts = get_prompt_set(params.prompt_set)
         button.disabled = False
         if params.mode == "std":
@@ -411,7 +463,7 @@ class BenchmarkScreen(Screen):
                             f"{params.reps} identical runs")
         elif params.mode == "tools":
             button.label = (f"▶  Tool-calling suite — {len(selected)} model(s) · "
-                            "12 cases × 3 trials")
+                            f"12 cases × {params.runs} trials")
         else:
             button.label = (
                 f"▶  Start benchmark — {len(selected)} model(s) · "
@@ -423,7 +475,12 @@ class BenchmarkScreen(Screen):
         if not models:
             self.notify("Select at least one model first (step 2)", severity="warning")
             return
-        self._last_setup = (self._backend_name(), models, self._params())
+        try:
+            params = self._params()
+        except ValueError as e:
+            self.notify(str(e), severity="warning")
+            return
+        self._last_setup = (self._backend_name(), models, params)
         self._run_benchmark(*self._last_setup)
 
     def _run_again(self) -> None:
@@ -456,10 +513,15 @@ class BenchmarkScreen(Screen):
         except (ValueError, IndexError):
             return
         report = load_report(entry.path)
+        saved_params = report.get("params", {})
+        replay_params = {k: v for k, v in saved_params.items()
+                         if k in {f.name for f in fields(BenchmarkParams)}}
+        if report.get("kind") == "toolcalls":
+            replay_params.update(mode="tools", runs=saved_params.get("trials", 3))
         self._last_setup = (
             report.get("backend", self._backend_name()),
             [r["model"] for r in report.get("results", [])],
-            BenchmarkParams(**report.get("params", {})),
+            BenchmarkParams(**replay_params),
         )
         self._show_results(report, saved_path=entry.path.with_suffix(".md"))
 
@@ -525,12 +587,12 @@ class BenchmarkScreen(Screen):
                 from crucible.benchmark.toolcalls import ToolCallRunner
 
                 self._runner = ToolCallRunner(
-                    backend, models, trials=3, hardware=hardware.probe(),
+                    backend, models, trials=params.runs, hardware=await asyncio.to_thread(hardware.probe),
                     progress_cb=on_progress,
                 )
             else:
                 self._runner = BenchmarkRunner(
-                    backend, models, prompts, params, hardware.probe(), on_progress
+                    backend, models, prompts, params, await asyncio.to_thread(hardware.probe), on_progress
                 )
             progress.update(total=len(models) * self._runner.total_per_model,
                             progress=0)
@@ -548,22 +610,31 @@ class BenchmarkScreen(Screen):
 
     # ---- results stage ------------------------------------------------------
 
+    def _focus_results(self) -> None:
+        view = self.query_one("#bench-results", VerticalScroll)
+        view.focus()
+        self.call_after_refresh(view.scroll_home, animate=False)
+
     def _show_failure(self, message: str) -> None:
         table = self.query_one("#results-table", DataTable)
         table.clear()
+        table.display = False
+        self.query_one("#tests-table", DataTable).display = False
+        self.query_one("#results-overview", Static).update("No completed report. Check the endpoint and retry.")
         self.query_one("#results-errors", Static).update("")
         self.query_one("#results-saved", Static).update(
             f"[$error]✗[/] benchmark failed: {message} — check the backend and try again"
         )
         self._set_stage("bench-results")
         self._header().set_context("")
-        self.query_one("#results-again", Button).focus()
+        self._focus_results()
 
     def _show_results(self, report: dict, saved_path: Path | None = None) -> None:
         if report.get("kind") == "toolcalls":
             self._show_tool_results(report, saved_path)
             return
         results = report.get("results", [])
+        self.query_one("#results-overview", Static).update(result_overview(report))
         timestamp = report.get("timestamp", "")[:16].replace("T", " ")
         self.query_one("#results-title", Static).update(
             f"RESULTS [dim]— {len(results)} model(s) · {report.get('backend', '?')} · "
@@ -585,10 +656,17 @@ class BenchmarkScreen(Screen):
             notes = []
             if t.get("approx"):
                 notes.append("≈ wall clock")
-            if not t.get("cache_hit", True):
-                notes.append("full prefill")
+            if t.get("cache_hit", True) is None:
+                notes.append("cache unverified")
+            elif t.get("cache_hit", True) is False:
+                notes.append("cache not reused")
+            for key, label in (("prompt_tokens_range", "input tok"), ("gen_tokens_range", "output tok")):
+                if t.get(key):
+                    notes.append(f"{label} {t[key][0]}–{t[key][1]}")
+            speed = (f"{t['tps_mean']:.2f} ± {t['tps_stdev']:.2f}"
+                     if t.get("measured_reps", t.get("reps", 1)) else "unavailable")
             tests_table.add_row(
-                model, t["test"], f"{t['tps_mean']:.2f} ± {t['tps_stdev']:.2f}",
+                model, t["test"], speed,
                 " · ".join(notes) or "exact",
             )
         table = self.query_one("#results-table", DataTable)
@@ -604,13 +682,13 @@ class BenchmarkScreen(Screen):
             table.add_row(
                 r["model"],
                 f"{r['load_s']:.1f}" if r.get("load_s") else "—",
-                f"{s.get('gen_tps', {}).get('mean', 0):.1f}",
+                f"{s.get('gen_tps', {}).get('mean', 0):.1f}" if s.get('gen_tps', {}).get('n', 1) else "—",
                 f"{s.get('gen_tps', {}).get('min', 0):.1f}",
                 f"{s.get('gen_tps', {}).get('max', 0):.1f}",
                 f"{s.get('ttft_s', {}).get('mean', 0):.2f}",
                 f"{s.get('prompt_tps', {}).get('mean', 0):.0f}",
                 str(s.get("total_gen_tokens", 0)),
-                "≈" if s.get("approx") else "✓",
+                "≈ client" if s.get("approx") else "server",
             )
         self.query_one("#results-errors", Static).update("[dim]" + " · ".join(errors) + "[/]"
                                                          if errors else "")
@@ -624,10 +702,13 @@ class BenchmarkScreen(Screen):
         else:
             saved.update("")
         self._set_stage("bench-results")
-        self.query_one("#results-again", Button).focus()
+        self._focus_results()
 
     def _show_tool_results(self, report: dict, saved_path: Path | None = None) -> None:
         results = report.get("results", [])
+        self.query_one("#results-overview", Static).update(
+            f"Run: {report.get('status', 'unknown (legacy)')} · Higher pass rate is better on this bundled suite.\n"
+            "Repeated cases are correlated: the Wilson interval is descriptive, not proof of general tool reliability.")
         timestamp = report.get("timestamp", "")[:16].replace("T", " ")
         self.query_one("#results-title", Static).update(
             f"TOOL CALLING [dim]— {len(results)} model(s) · "
@@ -644,15 +725,16 @@ class BenchmarkScreen(Screen):
             if r.get("error"):
                 tests_table.add_row(r["model"], "—", "—", r["error"][:60])
                 errors.append(f"{r['model']}: {r['error']}")
-                continue
+                if not r.get("total"):
+                    continue
             lo, hi = r.get("ci95", [0, 0])
             tests_table.add_row(
                 r["model"], "TOTAL",
                 f"{r.get('passes', 0)}/{r.get('total', 0)}",
-                f"{r.get('pass_rate', 0):.0%} · CI {lo:.0%}–{hi:.0%}",
+                f"{r.get('pass_rate', 0):.0%} · CI {lo:.0%}–{hi:.0%} · {r.get('status', 'legacy')}",
             )
             for c in r.get("cases", []):
-                mark = "✓" if c["passes"] == c["trials"] else ("±" if c["passes"] else "✗")
+                mark = "—" if not c["trials"] else "✓" if c["passes"] == c["trials"] else ("±" if c["passes"] else "✗")
                 note = "; ".join(c.get("fail_reasons", []))[:60] or c["checks"][:60]
                 tests_table.add_row("", c["case"], f"{c['passes']}/{c['trials']} {mark}", note)
         self.query_one("#results-errors", Static).update(
@@ -666,4 +748,4 @@ class BenchmarkScreen(Screen):
         else:
             saved.update("")
         self._set_stage("bench-results")
-        self.query_one("#results-again", Button).focus()
+        self._focus_results()

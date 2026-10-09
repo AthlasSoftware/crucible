@@ -38,6 +38,7 @@ MENU_SECTIONS = [
     ]),
     ("MORE", [
         ("reports", "r", "Reports", "read past runs & transcripts"),
+        ("resources", "e", "Resources", "pause/stop containers & check contention"),
         ("config", "c", "Config", "backends, models, sandbox"),
         ("about", "a", "About", "what is CRUCIBLE?"),
         ("quit", "q", "Quit", ""),
@@ -90,6 +91,7 @@ class HomeScreen(Screen):
         ("h", "goto('harness')", "Harness"),
         ("x", "goto('inspect')", "Inspect"),
         ("r", "goto('reports')", "Reports"),
+        ("e", "goto('resources')", "Resources"),
         ("c", "goto('config')", "Config"),
         ("a", "goto('about')", "About"),
         # Hidden from the footer: the global ctrl+q already advertises Quit

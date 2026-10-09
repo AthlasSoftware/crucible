@@ -59,6 +59,7 @@ class OllamaBackend(OpenAICompatBackend):
         chunks: list[str] = []
         offsets: list[float] = []
         final: dict = {}
+        reasoning_observed = False
         try:
             async with self._client.stream(
                 "POST", f"{self.base_url}/api/generate", json=payload
@@ -75,6 +76,7 @@ class OllamaBackend(OpenAICompatBackend):
                         continue
                     if data.get("error"):
                         raise BackendError(f"ollama: {data['error']}")
+                    reasoning_observed = reasoning_observed or bool(data.get("thinking"))
                     token = data.get("response", "")
                     if token:
                         now = time.monotonic()
@@ -90,7 +92,13 @@ class OllamaBackend(OpenAICompatBackend):
             raise BackendError(f"ollama: streaming failed: {e}") from e
 
         end = time.monotonic()
+        if not final:
+            raise BackendError("ollama: stream ended without final metrics; result incomplete")
+        if not chunks:
+            raise BackendError("ollama: no visible output; TTFT unavailable. A reasoning model may need a higher token cap.")
         eval_duration = final.get("eval_duration", 0) / _NS
+        exact = (eval_duration > 0 and final.get("prompt_eval_duration", 0) > 0
+                 and "eval_count" in final and "prompt_eval_count" in final)
         return GenResult(
             text="".join(chunks),
             ttft_s=(t_first if t_first is not None else end) - start,
@@ -98,11 +106,16 @@ class OllamaBackend(OpenAICompatBackend):
             gen_tokens=final.get("eval_count", len(chunks)),
             # Exact GPU/CPU eval time from the server; wall clock as fallback.
             gen_s=eval_duration or (end - (t_first or end)),
-            total_s=end - start,
+            total_s=offsets[-1] if offsets else end - start,
             prompt_eval_s=final.get("prompt_eval_duration", 0) / _NS or None,
             load_s=final.get("load_duration", 0) / _NS or None,
-            approx=not final,
+            approx=not exact,
             chunk_offsets_s=offsets,
+            timing_source="server" if eval_duration > 0 else "client",
+            token_count_source="server" if "eval_count" in final else "chunks",
+            finish_reason=final.get("done_reason"),
+            cached_prompt_tokens=final.get("prompt_eval_cached_count"),
+            reasoning_observed=reasoning_observed,
         )
 
     async def server_version(self) -> str | None:

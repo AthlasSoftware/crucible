@@ -194,12 +194,14 @@ def _value_matches(expected, actual) -> bool:
     if isinstance(expected, bool):
         return isinstance(actual, bool) and expected == actual
     if isinstance(expected, (int, float)):
+        if isinstance(actual, bool) or not isinstance(actual, (int, float)):
+            return False
         try:
             return math.isclose(float(actual), float(expected), rel_tol=0.01)
         except (TypeError, ValueError):
             return False
     if isinstance(expected, str):
-        return expected.lower() in str(actual).lower()
+        return isinstance(actual, str) and expected.lower() in actual.lower()
     return expected == actual
 
 
@@ -221,8 +223,16 @@ def score_case(case: ToolCase, calls: list[ToolCall]) -> tuple[bool, str]:
         return True, "abstained"
     if "parallel" in case.expect:
         specs = case.expect["parallel"]
-        unmatched = [s for s in specs
-                     if not any(_call_matches(s, c) for c in calls)]
+        if len(calls) != len(specs):
+            return False, f"expected {len(specs)} parallel calls, got {len(calls)}"
+        remaining = list(calls)
+        unmatched = []
+        for spec in specs:
+            match = next((i for i, call in enumerate(remaining) if _call_matches(spec, call)), None)
+            if match is None:
+                unmatched.append(spec)
+            else:
+                remaining.pop(match)
         if unmatched:
             return False, (f"missing {unmatched[0]['name']}({unmatched[0].get('args')}) "
                            f"— got {[c.name for c in calls] or 'no calls'}")
@@ -298,25 +308,22 @@ class ToolCallRunner:
             for case in CASES:
                 if self.cancelled:
                     break
-                passes = 0
-                reasons: list[str] = []
+                row = {"case": case.id, "checks": case.checks, "passes": 0,
+                       "trials": 0, "fail_reasons": []}
+                case_rows.append(row)
                 for _ in range(self.trials):
                     if self.cancelled:
                         break
                     calls = await self._one_trial(model, case)
                     ok, reason = score_case(case, calls)
-                    passes += ok
+                    row["passes"] += ok
+                    row["trials"] += 1
                     if not ok:
-                        reasons.append(reason)
+                        row["fail_reasons"].append(reason)
                     done += 1
                     self.progress_cb({"model": model, "phase": "run", "done": done,
                                       "total": self.total_per_model,
                                       "prompt_id": case.id, "token": None})
-                case_rows.append({
-                    "case": case.id, "checks": case.checks,
-                    "passes": passes, "trials": self.trials,
-                    "fail_reasons": reasons[:3],
-                })
         except ToolsUnsupported:
             error = ("backend rejected the tools parameter — this model/server "
                      "combination cannot do native tool calling")
@@ -327,11 +334,15 @@ class ToolCallRunner:
         passes = sum(c["passes"] for c in case_rows)
         lo, hi = wilson_interval(passes, total)
         flaky = [c["case"] for c in case_rows if 0 < c["passes"] < c["trials"]]
+        self.progress_cb({"model": model, "phase": "model-done", "done": done,
+                          "total": self.total_per_model, "prompt_id": "", "token": None})
         return {
             "model": model,
             "cases": case_rows,
             "passes": passes,
             "total": total,
+            "expected_trials": self.total_per_model,
+            "status": "failed" if error else "incomplete" if total < self.total_per_model else "complete",
             "pass_rate": passes / total if total else 0.0,
             "ci95": [round(lo, 3), round(hi, 3)],
             "flaky_cases": flaky,
@@ -341,7 +352,9 @@ class ToolCallRunner:
     def _report(self, results: list[dict], server_version: str | None) -> dict:
         hw = self.hardware
         return {
-            "schema": 2,
+            "schema": 3,
+            "status": "cancelled" if self.cancelled else (
+                "partial" if any(r.get("error") for r in results) else "complete"),
             "kind": "toolcalls",
             "id": str(uuid.uuid4()),
             "timestamp": datetime.now().astimezone().isoformat(timespec="seconds"),

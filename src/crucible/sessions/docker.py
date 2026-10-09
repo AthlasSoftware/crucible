@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import uuid
 from collections.abc import Callable
+from contextlib import suppress
 from dataclasses import dataclass
 
 LABEL = "crucible.session"
@@ -57,8 +58,15 @@ async def _docker(*args: str, timeout_s: float = 60.0) -> tuple[int, str, str]:
     try:
         out, err = await asyncio.wait_for(proc.communicate(), timeout=timeout_s)
     except TimeoutError:
-        proc.kill()
+        with suppress(ProcessLookupError):
+            proc.kill()
+        await proc.communicate()
         raise SandboxError(f"docker {' '.join(args[:2])} timed out") from None
+    except asyncio.CancelledError:
+        with suppress(ProcessLookupError):
+            proc.kill()
+        await proc.communicate()
+        raise
     return proc.returncode or 0, out.decode(errors="replace"), err.decode(errors="replace")
 
 
